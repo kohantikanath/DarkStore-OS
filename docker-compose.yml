@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: darkstore-os-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: darkstore
+      POSTGRES_PASSWORD: darkstore
+      POSTGRES_DB: darkstore
+    ports:
+      - "5432:5432"
+    volumes:
+      - darkstore-os-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkstore -d darkstore"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  darkstore-os-pgdata:
