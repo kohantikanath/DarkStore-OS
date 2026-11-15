@@ -1,8 +1,8 @@
 # DarkStore OS
 
-> Status: Phase 6 — `/shop` is real: catalog, cart, checkout, and a live
-> order tracker. `/ops` and `/picker` are still placeholders (Phases 7–8),
-> no substitution flow yet (Phase 8).
+> Status: Phase 7 — `/ops` is real: a virtualized live order table (10,000+
+> rows), filters, and a "Simulate" button. `/picker` is still a placeholder
+> (Phase 8), no substitution flow yet (Phase 8).
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -145,6 +145,20 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   invalidated once** (not refetched blindly on every render) — since orders
   are never polled (`staleTime: Infinity`), a fresh fetch after reconnecting
   is the only way to be sure nothing was missed while disconnected.
+- **`POST /api/dev/simulate` reuses `CreateOrder` with randomly picked
+  items**, rather than writing a separate order-creation path. A simulated
+  order goes through the exact same atomic stock reservation and live
+  broadcast as a real one — there's no second code path to keep in sync, and
+  demo orders behave identically to real ones everywhere downstream.
+- **The ops table filters client-side**, not via a `?status=` query param.
+  At 10,000 rows already held in memory (the whole point of `staleTime:
+  Infinity` plus WebSocket patching), filtering in place is simpler and
+  faster than a round trip, and keeps `GET /api/orders` a single, simple
+  endpoint. A system with millions of orders would need server-side
+  filtering here instead.
+- **TanStack Virtual only renders rows near the viewport, not all 10,000.**
+  Verified directly — scrolling 42% into the list still only produced ~22
+  DOM nodes for the table body, same as scrolled to the top.
 
 ## Known limitations / out of scope
 
@@ -227,7 +241,7 @@ below with Python's `websocket-client`):
 
 `short`/`substitute` (the Live Substitution flow) is still ahead — Phase 8.
 
-### Frontend (Phase 5 foundation, Phase 6 /shop)
+### Frontend (Phase 5 foundation, Phase 6 /shop, Phase 7 /ops)
 
 ```bash
 cd frontend
@@ -250,7 +264,14 @@ curl -X POST http://localhost:8080/api/orders/<id>/pack
 curl -X POST http://localhost:8080/api/orders/<id>/dispatch
 ```
 
-`/ops` and `/picker` are still placeholders (Phases 7, 8).
+Pick **Store Manager** instead (switch role, top right) for `/ops` — a live
+table of every order, seeded with 10,000 rows so you can feel the
+virtualization (only the rows near the viewport are ever in the DOM).
+Filter by status, search by order id, and hit **Simulate** to have the
+backend create a new random order every 3 seconds — watch it land at the
+top of the table live, with no refresh.
+
+`/picker` is still a placeholder (Phase 8).
 
 ```bash
 npm run lint    # ESLint

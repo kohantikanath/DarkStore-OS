@@ -79,6 +79,27 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, order)
 }
 
+// Simulate handles POST /api/dev/simulate — creates one order from random
+// catalog items, so a demo's ops table has something happening on its own.
+// No Idempotency-Key: each call is its own, intentionally-new random order.
+func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
+	order, err := h.service.SimulateOrder(r.Context())
+	if err != nil {
+		var stockErr *InsufficientStockError
+		switch {
+		case errors.As(err, &stockErr):
+			httpx.WriteError(w, http.StatusConflict, "INSUFFICIENT_STOCK",
+				"not enough stock for one or more items", stockErr.Items)
+		default:
+			log.Printf("orders: simulate: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "something went wrong", nil)
+		}
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, order)
+}
+
 // List handles GET /api/orders — lightweight summaries for the ops table.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	summaries, err := h.repo.ListSummaries(r.Context())

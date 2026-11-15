@@ -3,6 +3,7 @@ package orders
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -16,9 +17,11 @@ import (
 // pulled out as an interface so this package doesn't import products
 // directly (orders depending on products would be fine either way here, but
 // keeping the dependency this narrow makes it obvious the service only ever
-// needs prices, never the rest of the catalog).
+// needs prices and, for the simulate endpoint, a random sample of ids —
+// never the rest of the catalog).
 type priceLookup interface {
 	PriceLookup(ctx context.Context, ids []string) (map[string]int, error)
+	RandomProductIDs(ctx context.Context, n int) ([]string, error)
 }
 
 // broadcaster is the one thing Service needs from the ws package, narrowed to
@@ -117,6 +120,30 @@ func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items 
 	s.hub.Broadcast(order.ID, "order.created", order)
 
 	return order, nil
+}
+
+// SimulateOrder creates one order from a random sample of the catalog, for
+// POST /api/dev/simulate — it's just CreateOrder with made-up input, so it
+// gets the same atomic stock reservation, idempotency bookkeeping, and
+// live broadcast for free, and a simulated order behaves identically to a
+// real one everywhere else in the system.
+func (s *Service) SimulateOrder(ctx context.Context) (*Order, error) {
+	n := 1 + rand.Intn(3) // 1-3 line items
+
+	ids, err := s.prices.RandomProductIDs(ctx, n)
+	if err != nil {
+		return nil, fmt.Errorf("orders: simulate: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("orders: simulate: no products in catalog")
+	}
+
+	items := make([]CreateOrderItem, len(ids))
+	for i, id := range ids {
+		items[i] = CreateOrderItem{ProductID: id, Qty: 1 + rand.Intn(3)}
+	}
+
+	return s.CreateOrder(ctx, db.NewUUID(), items)
 }
 
 // StartPicking moves an order from PLACED to PICKING.

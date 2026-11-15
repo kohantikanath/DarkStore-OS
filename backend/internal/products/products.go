@@ -76,6 +76,30 @@ func (r *Repository) PriceLookup(ctx context.Context, ids []string) (map[string]
 	return out, rows.Err()
 }
 
+// RandomProductIDs returns up to n distinct product ids chosen at random,
+// for POST /api/dev/simulate. ORDER BY random() is fine at this catalog's
+// size (dozens of rows) — it wouldn't be the right choice on a large table,
+// but there's no need for anything fancier here.
+func (r *Repository) RandomProductIDs(ctx context.Context, n int) ([]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id FROM products ORDER BY random() LIMIT $1`, n)
+	if err != nil {
+		return nil, fmt.Errorf("products: random ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("products: scan random id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, rows.Err()
+}
+
 type Handler struct {
 	repo *Repository
 }

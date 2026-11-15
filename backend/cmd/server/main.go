@@ -85,6 +85,7 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 		r.Post("/api/orders/{id}/start-picking", ordersHandler.StartPicking)
 		r.Post("/api/orders/{id}/pack", ordersHandler.Pack)
 		r.Post("/api/orders/{id}/dispatch", ordersHandler.Dispatch)
+		r.Post("/api/dev/simulate", ordersHandler.Simulate)
 	})
 
 	// Not under /api: it's a WebSocket upgrade, not a REST resource.

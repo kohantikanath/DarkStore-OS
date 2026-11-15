@@ -117,3 +117,11 @@ export async function packOrder(id: string): Promise<Order> {
 export async function dispatchOrder(id: string): Promise<Order> {
   return request(`/api/orders/${id}/dispatch`, OrderSchema, { method: "POST" });
 }
+
+// Creates one order from random catalog items, for the ops screen's
+// "Simulate" button — makes a demo's live table look alive on its own. No
+// Idempotency-Key: unlike a real checkout, each call is deliberately a new,
+// distinct order.
+export async function simulateOrder(): Promise<Order> {
+  return request(`/api/dev/simulate`, OrderSchema, { method: "POST" });
+}

@@ -2,7 +2,7 @@
 // live in exactly one place instead of being repeated at every call site.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { createOrder, getOrder, getProducts } from "./api";
+import { createOrder, getOrder, getProducts, listOrders } from "./api";
 import { queryKeys } from "./queryClient";
 import type { CreateOrderItem } from "../types/order";
 
@@ -22,6 +22,16 @@ export function useOrder(orderId: string) {
     queryFn: () => getOrder(orderId),
     // Infinity: this order's freshness comes from the WebSocket (see
     // lib/realtime.ts), never from polling or refetch-on-focus.
+    staleTime: Infinity,
+  });
+}
+
+export function useOrders() {
+  return useQuery({
+    queryKey: queryKeys.orders,
+    queryFn: listOrders,
+    // Same reasoning as useOrder: the ops table is kept fresh by the "ops"
+    // WebSocket channel, not by polling — fetched once, then patched.
     staleTime: Infinity,
   });
 }
