@@ -9,7 +9,7 @@ export default function PickerApp() {
   return (
     <div>
       <AppHeader />
-      <main className="mx-auto max-w-3xl p-6">
+      <main className="mx-auto max-w-3xl p-4 sm:p-6">
         <Routes>
           <Route path="/" element={<PickerQueue />} />
           <Route path="order/:orderId" element={<PickerOrderDetail />} />

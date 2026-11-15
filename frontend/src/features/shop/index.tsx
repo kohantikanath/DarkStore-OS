@@ -9,7 +9,7 @@ export default function ShopApp() {
   return (
     <div>
       <AppHeader />
-      <main className="mx-auto max-w-4xl p-6">
+      <main className="mx-auto max-w-5xl p-4 sm:p-6">
         <Routes>
           <Route path="/" element={<CatalogPage />} />
           <Route path="order/:orderId" element={<OrderTrackerPage />} />

@@ -1,1 +1,74 @@
 @import "tailwindcss";
+
+/*
+ * "Warehouse signage" design tokens — borrowed from a real dark store's
+ * blue crates, yellow safety markings and shelf labels, not from any real
+ * company's brand. One status maps to exactly one color everywhere in the
+ * app (see components/StatusPill.tsx) — safety yellow is reserved entirely
+ * for the substitution flow (a decision someone needs to make right now),
+ * never used as decoration.
+ */
+@theme {
+  --color-ink: #1f2a37;
+  --color-paper: #f7f8fa;
+  --color-crate: #2457d6;
+  --color-crate-dark: #173ead;
+  --color-safety: #f2c230;
+  /* Safety yellow is too light to use as text at any reasonable opacity and
+     still hit WCAG AA (4.5:1) on its own tinted pill background — this is a
+     separate, much darker amber used ONLY as text/icon color on a safety
+     tint, never as a fill. Verified: 5.35:1 on bg-safety/20, 5.94:1 on white. */
+  --color-safety-dark: #796118;
+  --color-fresh: #1e8e5a;
+  /* Text-only darkened variant of fresh, same reasoning as safety-dark.
+     Verified: 5.25:1 on bg-fresh/10, 5.93:1 on white. */
+  --color-fresh-dark: #187248;
+  --color-alert: #d64545;
+  /* Text-only darkened variant of alert, same reasoning. Verified: 5.09:1 on
+     bg-alert/10, 5.82:1 on white. */
+  --color-alert-dark: #b43a3a;
+
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display:
+    "Barlow Condensed", "Figtree", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  /* A visible focus ring everywhere, not just the browser default (which
+     Tailwind's preflight otherwise mutes on some elements). */
+  :focus-visible {
+    outline: 2px solid var(--color-crate);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Any "flash to show this just changed live" effect (the ops table row
+     highlight) goes through this one class, so reduced-motion is handled
+     in exactly one place rather than per call site. */
+  .pulse-live {
+    animation: pulse-live 1.4s ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-live {
+      animation: none;
+      background-color: transparent;
+    }
+  }
+}
+
+@keyframes pulse-live {
+  0% {
+    background-color: color-mix(in srgb, var(--color-crate) 18%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

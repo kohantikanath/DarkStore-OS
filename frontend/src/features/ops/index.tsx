@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { AppHeader } from "../../components/AppHeader";
-import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { simulateOrder } from "../../lib/api";
 import { useOrders } from "../../lib/queries";
 import { subscribe } from "../../lib/realtime";
 import { useOpsFiltersStore, type StatusFilter } from "../../stores/opsFilters";
 import { OrdersTable } from "./OrdersTable";
 
-const statusOptions: StatusFilter[] = ["ALL", "PLACED", "PICKING", "PACKED", "DISPATCHED"];
+const statusOptions: { value: StatusFilter; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "PLACED", label: "Placed" },
+  { value: "PICKING", label: "Picking" },
+  { value: "PACKED", label: "Packed" },
+  { value: "DISPATCHED", label: "Dispatched" },
+];
 const SIMULATE_INTERVAL_MS = 3000;
 
 export default function OpsApp() {
@@ -40,49 +45,63 @@ export default function OpsApp() {
     return () => clearInterval(id);
   }, [simulating]);
 
-  const filtered = useMemo(() => {
-    let list = orders.data ?? [];
-    if (status !== "ALL") list = list.filter((o) => o.status === status);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter((o) => o.id.toLowerCase().includes(q));
-    }
-    return list;
-  }, [orders.data, status, search]);
+  const searched = useMemo(() => {
+    const list = orders.data ?? [];
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase();
+    return list.filter((o) => o.id.toLowerCase().includes(q));
+  }, [orders.data, search]);
+
+  // Counts for the filter chips are computed from the search results, not
+  // the full list — so typing a search narrows the counts shown on each
+  // chip too, rather than showing stale totals for filters that no longer
+  // apply to what's on screen.
+  const countByStatus = useMemo(() => {
+    const counts: Record<StatusFilter, number> = {
+      ALL: searched.length,
+      PLACED: 0,
+      PICKING: 0,
+      PACKED: 0,
+      DISPATCHED: 0,
+    };
+    for (const order of searched) counts[order.status] += 1;
+    return counts;
+  }, [searched]);
+
+  const filtered = useMemo(
+    () => (status === "ALL" ? searched : searched.filter((o) => o.status === status)),
+    [searched, status],
+  );
 
   return (
     <div>
       <AppHeader />
-      <main className="mx-auto max-w-5xl p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-slate-800">Store Manager — Ops</h1>
-          <ConnectionBadge />
-        </div>
+      <main className="mx-auto max-w-5xl p-4 sm:p-6">
+        <h1 className="mb-4 text-2xl font-semibold text-ink">Store Manager — Ops</h1>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as StatusFilter)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-          >
-            {statusOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {statusOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setStatus(option.value)}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+                status === option.value
+                  ? "bg-crate text-white shadow-sm"
+                  : "bg-ink/5 text-ink/70 hover:text-ink"
+              }`}
+            >
+              {option.label} <span className="tabular-nums">{countByStatus[option.value]}</span>
+            </button>
+          ))}
 
           <input
             type="text"
             placeholder="Search by order id…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+            className="rounded-full border border-ink/15 px-3.5 py-1.5 text-sm focus-visible:border-crate"
           />
-
-          <span className="text-sm text-slate-500">
-            {orders.data ? `${filtered.length} / ${orders.data.length} orders` : null}
-          </span>
 
           <button
             type="button"
@@ -90,31 +109,31 @@ export default function OpsApp() {
               setSimulateError(null);
               setSimulating((s) => !s);
             }}
-            className={`ml-auto rounded-md px-4 py-1.5 text-sm font-medium text-white ${
-              simulating ? "bg-red-600 hover:bg-red-700" : "bg-slate-800 hover:bg-slate-700"
+            className={`ml-auto rounded-full px-4 py-1.5 text-sm font-medium text-white ${
+              simulating ? "bg-alert hover:bg-alert/90" : "bg-crate hover:bg-crate-dark"
             }`}
           >
             {simulating ? "Stop simulating" : "Simulate"}
           </button>
         </div>
 
-        {simulateError && <p className="mb-4 text-sm text-red-600">{simulateError}</p>}
+        {simulateError && <p className="mb-4 text-sm text-alert-dark">{simulateError}</p>}
 
         {orders.isPending && (
           <div className="space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-10 animate-pulse rounded-md bg-slate-100" />
+              <div key={i} className="h-14 animate-pulse rounded-xl bg-ink/5" />
             ))}
           </div>
         )}
 
         {orders.isError && (
           <div className="flex flex-col items-start gap-3">
-            <p className="text-slate-600">Couldn't load orders.</p>
+            <p className="text-ink/70">Couldn't load orders.</p>
             <button
               type="button"
               onClick={() => orders.refetch()}
-              className="rounded-md bg-slate-800 px-4 py-2 text-white hover:bg-slate-700"
+              className="rounded-md bg-crate px-4 py-2 font-medium text-white hover:bg-crate-dark"
             >
               Retry
             </button>
@@ -122,7 +141,7 @@ export default function OpsApp() {
         )}
 
         {orders.isSuccess && filtered.length === 0 && (
-          <p className="text-slate-500">
+          <p className="text-ink/70">
             {orders.data.length === 0
               ? "No orders yet — place one from the shop, or hit Simulate above."
               : "No orders match these filters."}

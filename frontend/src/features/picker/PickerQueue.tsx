@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { formatPaise } from "../../lib/cart";
 import { useOrders } from "../../lib/queries";
 import { subscribe } from "../../lib/realtime";
+import { StatusPill } from "../../components/StatusPill";
 
 // Same "ops" channel and ['orders'] cache as the manager's table — a picker
 // needs to see new orders arrive and orders drop off once fully picked,
@@ -17,9 +18,9 @@ export function PickerQueue() {
 
   if (orders.isPending) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-12 animate-pulse rounded-md bg-slate-100" />
+          <div key={i} className="h-16 animate-pulse rounded-xl bg-ink/5" />
         ))}
       </div>
     );
@@ -28,11 +29,11 @@ export function PickerQueue() {
   if (orders.isError) {
     return (
       <div className="flex flex-col items-start gap-3">
-        <p className="text-slate-600">Couldn't load orders.</p>
+        <p className="text-ink/70">Couldn't load orders.</p>
         <button
           type="button"
           onClick={() => orders.refetch()}
-          className="rounded-md bg-slate-800 px-4 py-2 text-white hover:bg-slate-700"
+          className="rounded-md bg-crate px-4 py-2 font-medium text-white hover:bg-crate-dark"
         >
           Retry
         </button>
@@ -48,25 +49,29 @@ export function PickerQueue() {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   if (actionable.length === 0) {
-    return <p className="text-slate-500">No orders waiting to be picked right now.</p>;
+    return <p className="text-ink/70">No orders waiting to be picked right now.</p>;
   }
 
   return (
     <div>
-      <h1 className="mb-4 text-xl font-semibold text-slate-800">Picker queue</h1>
-      <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+      <h1 className="mb-4 text-2xl font-semibold text-ink">Picker queue</h1>
+      <ul className="space-y-2">
         {actionable.map((order) => (
           <li key={order.id}>
             <Link
               to={`/picker/order/${order.id}`}
-              className="flex items-center justify-between px-4 py-3 text-sm hover:bg-slate-50"
+              className="flex min-h-14 items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-ink/10 transition hover:ring-crate"
             >
-              <span className="font-mono text-xs text-slate-500">{order.id.slice(0, 8)}</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                {order.status}
+              <span className="font-display text-lg font-semibold tabular-nums text-ink">
+                #{order.id.slice(0, 8)}
               </span>
-              <span className="text-slate-500">{order.itemCount} items</span>
-              <span className="text-slate-800">{formatPaise(order.totalPaise)}</span>
+              <StatusPill status={order.status} />
+              <span className="hidden text-sm text-ink/70 sm:inline">
+                {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
+              </span>
+              <span className="font-display text-lg font-semibold tabular-nums text-ink">
+                {formatPaise(order.totalPaise)}
+              </span>
             </Link>
           </li>
         ))}

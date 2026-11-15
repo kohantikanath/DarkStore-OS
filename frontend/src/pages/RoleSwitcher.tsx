@@ -1,18 +1,13 @@
 import { Navigate } from "react-router-dom";
 
-import { useRoleStore, type Role } from "../stores/role";
+import { roleHome, roles } from "../lib/roles";
+import { useRoleStore } from "../stores/role";
 
-const roleHome: Record<Role, string> = {
-  customer: "/shop",
-  picker: "/picker",
-  manager: "/ops",
-};
-
-const roles: { role: Role; label: string; blurb: string }[] = [
-  { role: "customer", label: "Customer", blurb: "Browse the shop and track an order" },
-  { role: "picker", label: "Picker", blurb: "Pick items for incoming orders" },
-  { role: "manager", label: "Store Manager", blurb: "Watch the live order queue" },
-];
+const roleAccent = {
+  customer: "border-l-crate",
+  picker: "border-l-safety",
+  manager: "border-l-fresh",
+} as const;
 
 export function RoleSwitcher() {
   const currentRole = useRoleStore((s) => s.role);
@@ -23,10 +18,10 @@ export function RoleSwitcher() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-8 p-8">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-paper p-8">
       <div className="text-center">
-        <h1 className="text-2xl font-semibold text-slate-800">DarkStore OS</h1>
-        <p className="mt-1 text-slate-500">Pick a role to continue (fake login, for the demo)</p>
+        <h1 className="text-3xl font-semibold text-ink">DarkStore OS</h1>
+        <p className="mt-2 text-ink/70">Pick a role to continue — fake login, for the demo.</p>
       </div>
 
       <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-3">
@@ -35,10 +30,10 @@ export function RoleSwitcher() {
             key={role}
             type="button"
             onClick={() => setRole(role)}
-            className="flex flex-col gap-2 rounded-lg border border-slate-200 p-5 text-left transition hover:border-slate-400 hover:shadow-md"
+            className={`flex flex-col gap-2 rounded-xl border-l-4 bg-white p-5 text-left ring-1 ring-ink/10 transition hover:ring-ink/20 hover:shadow-md ${roleAccent[role]}`}
           >
-            <span className="text-lg font-medium text-slate-800">{label}</span>
-            <span className="text-sm text-slate-500">{blurb}</span>
+            <span className="text-lg font-semibold text-ink">{label}</span>
+            <span className="text-sm text-ink/70">{blurb}</span>
           </button>
         ))}
       </div>

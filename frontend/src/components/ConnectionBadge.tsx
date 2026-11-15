@@ -1,17 +1,23 @@
 import { useConnectionStatus } from "../lib/realtime";
 
-// Shown on any screen that depends on live WebSocket updates (the order
-// tracker now, the ops table in Phase 7). Renders nothing once connected —
-// it's only meant to explain an otherwise-silent gap in live updates.
+// Always visible, not just when something's wrong — a quiet green "Live"
+// is itself useful confirmation that the real-time pipeline this whole app
+// is built around is actually working right now.
 export function ConnectionBadge() {
   const status = useConnectionStatus();
-
-  if (status === "open") return null;
+  const isLive = status === "open";
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-md bg-amber-100 px-3 py-1 text-sm text-amber-800">
-      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-      {status === "connecting" ? "Connecting…" : "Reconnecting…"}
+    <div
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+        isLive ? "bg-fresh/10 text-fresh-dark" : "bg-safety/20 text-safety-dark"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${isLive ? "bg-fresh" : "animate-pulse bg-safety-dark"}`}
+      />
+      {isLive ? "Live" : status === "connecting" ? "Connecting…" : "Reconnecting…"}
     </div>
   );
 }

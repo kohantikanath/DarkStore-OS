@@ -1,23 +1,16 @@
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef } from "react";
 
 import { formatPaise } from "../../lib/cart";
-import type { OrderStatus, OrderSummary } from "../../types/order";
+import { StatusPill } from "../../components/StatusPill";
+import type { OrderSummary } from "../../types/order";
 
-const ROW_HEIGHT = 48;
+const ROW_HEIGHT = 56;
 const VISIBLE_HEIGHT = 560;
 
-const statusStyles: Record<OrderStatus, string> = {
-  PLACED: "bg-blue-100 text-blue-800",
-  PICKING: "bg-amber-100 text-amber-800",
-  PACKED: "bg-purple-100 text-purple-800",
-  DISPATCHED: "bg-green-100 text-green-800",
-};
-
 // TanStack Virtual only renders the rows actually in (or near) the viewport,
-// so this stays smooth whether `orders` has 10 rows or 10,000 — rule 11.
+// so this stays smooth whether `orders` has 10 rows or 10,000.
 export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -29,8 +22,8 @@ export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
   });
 
   return (
-    <div className="rounded-md border border-slate-200">
-      <div className="grid grid-cols-6 gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <div className="overflow-hidden rounded-xl bg-white ring-1 ring-ink/10">
+      <div className="grid grid-cols-6 gap-2 border-b border-ink/10 bg-ink/[0.03] px-4 py-2.5 text-xs font-medium text-ink/70">
         <span>Order</span>
         <span>Status</span>
         <span>Version</span>
@@ -62,7 +55,7 @@ export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
 
 // Memoized: with 10,000+ rows, a row must only re-render when ITS data
 // changes, not whenever any other row (or the table's own scroll state)
-// changes — rule 11.
+// changes.
 const OrderRow = memo(function OrderRow({
   order,
   style,
@@ -70,25 +63,46 @@ const OrderRow = memo(function OrderRow({
   order: OrderSummary;
   style: CSSProperties;
 }) {
+  const isPulsing = useLiveUpdatePulse(order.version);
+
   return (
     <div
       style={style}
-      className="grid grid-cols-6 items-center gap-2 border-b border-slate-100 px-4 text-sm text-slate-700"
+      className={`grid grid-cols-6 items-center gap-2 border-b border-ink/5 px-4 text-sm text-ink/80 ${
+        isPulsing ? "pulse-live" : ""
+      }`}
     >
-      <span className="truncate font-mono text-xs text-slate-500">{order.id.slice(0, 8)}</span>
+      <span className="truncate font-display tabular-nums text-ink/70">
+        #{order.id.slice(0, 8)}
+      </span>
       <span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusStyles[order.status]}`}
-        >
-          {order.status}
-        </span>
+        <StatusPill status={order.status} />
       </span>
-      <span>{order.version}</span>
-      <span>{order.itemCount}</span>
-      <span>{formatPaise(order.totalPaise)}</span>
-      <span className="text-xs text-slate-500">
-        {new Date(order.updatedAt).toLocaleTimeString()}
-      </span>
+      <span className="font-display tabular-nums">{order.version}</span>
+      <span className="font-display tabular-nums">{order.itemCount}</span>
+      <span className="font-display tabular-nums">{formatPaise(order.totalPaise)}</span>
+      <span className="text-xs text-ink/70">{new Date(order.updatedAt).toLocaleTimeString()}</span>
     </div>
   );
 });
+
+// A brief highlight when a row's version changes under it — purely visual,
+// never the thing that decides whether the change is real (that's the
+// version-gated cache patching in lib/cache.ts). Fires only for a row
+// that's currently mounted (visible or within the virtualizer's overscan)
+// when the change arrives; a row scrolled far out of view just shows its
+// new data next time it's scrolled back in, with no pulse to catch up on.
+function useLiveUpdatePulse(version: number): boolean {
+  const previousVersion = useRef(version);
+  const [isPulsing, setIsPulsing] = useState(false);
+
+  useEffect(() => {
+    if (previousVersion.current === version) return;
+    previousVersion.current = version;
+    setIsPulsing(true);
+    const timer = setTimeout(() => setIsPulsing(false), 1400);
+    return () => clearTimeout(timer);
+  }, [version]);
+
+  return isPulsing;
+}

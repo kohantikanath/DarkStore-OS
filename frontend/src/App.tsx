@@ -11,14 +11,14 @@ const PickerApp = lazy(() => import("./features/picker"));
 const OpsApp = lazy(() => import("./features/ops"));
 
 function RouteFallback() {
-  return <div className="p-8 text-slate-500">Loading…</div>;
+  return <div className="p-8 text-ink/70">Loading…</div>;
 }
 
 function NotFound() {
   return (
-    <div className="flex flex-col items-start gap-3 p-8">
-      <p className="text-slate-600">There's nothing at this URL.</p>
-      <Link to="/" className="text-sm text-slate-500 underline">
+    <div className="flex min-h-screen flex-col items-start gap-3 bg-paper p-8">
+      <p className="text-ink/70">There's nothing at this URL.</p>
+      <Link to="/" className="text-sm font-medium text-crate underline">
         Back to start
       </Link>
     </div>
