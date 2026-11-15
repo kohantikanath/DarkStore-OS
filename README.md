@@ -1,6 +1,7 @@
 # DarkStore OS
 
-> Status: Phase 1 — database schema + seed data. No API yet.
+> Status: Phase 2 — REST API for the catalog and order creation/reads.
+> No WebSocket, no pick/pack/dispatch yet, no frontend yet.
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -56,6 +57,20 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
 - **Seed data is deterministic** (`rand.NewSource(42)`), so re-running `go run
   ./cmd/seed` always produces the same demo dataset — useful when debugging
   something that shows up in the ops table.
+- **`GET /api/products` excludes live stock numbers.** Stock changes on every
+  order; if the catalog response included it, the ETag would change
+  constantly and the frontend's 5-minute `staleTime` would be pointless.
+  Out-of-stock is instead surfaced as a `409 INSUFFICIENT_STOCK` at checkout.
+- **`GET /api/orders` returns the full list with no pagination.** At this
+  project's scale, one request is simpler than cursor pagination, and the
+  frontend's design (fetch once, patch via WebSocket, `staleTime: Infinity`)
+  assumes the whole list lives in one cache entry anyway. A production system
+  with millions of orders would need real pagination here.
+- **Idempotency is check-then-act, not DB-locked.** Two requests sharing a
+  brand-new key at the exact same instant could in theory both pass the
+  lookup and both create an order — true safety would need a unique-insert-
+  first pattern or a row lock. Not worth the complexity here since the
+  frontend only ever issues one request per generated key.
 
 ## Known limitations / out of scope
 
@@ -87,8 +102,34 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.30.1 -dir migrations postgres "$
 go run ./cmd/seed
 ```
 
-The backend API itself (Phase 2) isn't built yet, so there's nothing to run
-beyond the database at this stage.
+### Backend API (Phase 2)
+
+```bash
+cd backend
+cp .env.example .env   # then edit if your ports differ
+export $(cat .env | xargs)
+go run ./cmd/server    # listens on :8080 by default
+```
+
+Try it:
+
+```bash
+curl http://localhost:8080/api/health
+curl http://localhost:8080/api/products
+```
+
+Creating an order needs an `Idempotency-Key` header (any unique string —
+the frontend will generate one with `crypto.randomUUID()` starting Phase 6):
+
+```bash
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"items":[{"productId":"<a product id from /api/products>","qty":1}]}'
+```
+
+No frontend yet (Phase 5+), and no WebSocket or pick/pack/dispatch/substitute
+endpoints yet (Phase 3).
 
 ## Live links
 
