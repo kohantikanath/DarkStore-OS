@@ -610,9 +610,3 @@ npm run build                       # normal build — no mock code in the bundl
 > same Netlify project — it was renamed (`darkstore-os-hello` →
 > `darkstore-os`) and redeployed with the real app once it was built, rather
 > than standing up a second site.
-
-## Project docs
-
-- [Full project spec](docs/project-spec.md)
-- [CLAUDE.md](CLAUDE.md) — quick-reference for stack and frontend/backend rules
-- [Demo video script](docs/demo-script.md) — shot-by-shot script for a ~3-minute walkthrough
