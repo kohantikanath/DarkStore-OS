@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { computeCartSummary } from "./cart";
+import { computeCartSummary, formatPriceDiff } from "./cart";
 import type { Product } from "../types/product";
 
 const products: Product[] = [
-  { id: "p1", name: "Milk", category: "Dairy", pricePaise: 2700 },
-  { id: "p2", name: "Bread", category: "Bakery", pricePaise: 4500 },
+  { id: "p1", name: "Milk", category: "Dairy", subcategory: "Milk", pricePaise: 2700 },
+  { id: "p2", name: "Bread", category: "Bakery", subcategory: "Bread", pricePaise: 4500 },
 ];
 
 describe("computeCartSummary", () => {
@@ -47,5 +47,19 @@ describe("computeCartSummary", () => {
     const summary = computeCartSummary(products, { p1: 1, "ghost-id": 5 });
     expect(summary.lines).toHaveLength(1);
     expect(summary.lines[0].product.id).toBe("p1");
+  });
+});
+
+describe("formatPriceDiff", () => {
+  it("shows a + sign and the amount for a more expensive substitute", () => {
+    expect(formatPriceDiff(300)).toBe("+₹3.00");
+  });
+
+  it("shows a − sign and the amount for a cheaper substitute", () => {
+    expect(formatPriceDiff(-200)).toBe("−₹2.00");
+  });
+
+  it("says 'Same price' instead of +₹0.00 for an exact match", () => {
+    expect(formatPriceDiff(0)).toBe("Same price");
   });
 });

@@ -1,16 +1,29 @@
 import { useEffect, useId, useMemo, useRef } from "react";
 
-import { formatPaise } from "../../lib/cart";
+import { formatPaise, formatPriceDiff } from "../../lib/cart";
 import { useChooseSubstitute } from "../../lib/queries";
 import { useRemainingSeconds } from "../../lib/useCountdown";
 import type { OrderItem } from "../../types/order";
+import type { Product } from "../../types/product";
 
 const SUBSTITUTION_WINDOW_SECONDS = 60;
 
 // Rendered whenever an order has an item with status AWAITING_SUBSTITUTE —
 // derived from order state, not from the WebSocket event itself, so it's
 // still showing (with the correct remaining time) after a page refresh.
-export function SubstitutionModal({ orderId, item }: { orderId: string; item: OrderItem }) {
+// `originalProduct` is looked up by the caller (OrderTrackerPage, from the
+// products catalog query it already has) rather than passed as a bare name
+// string, since the price-difference-per-candidate line needs the
+// original's price too, not just its name.
+export function SubstitutionModal({
+  orderId,
+  item,
+  originalProduct,
+}: {
+  orderId: string;
+  item: OrderItem;
+  originalProduct: Product | undefined;
+}) {
   const offer = item.substituteOptions;
   const remaining = useRemainingSeconds(item.expiresAt ?? new Date().toISOString());
   const chooseSubstitute = useChooseSubstitute();
@@ -66,7 +79,7 @@ export function SubstitutionModal({ orderId, item }: { orderId: string; item: Or
 
         <div className="p-6">
           <h2 id={titleId} className="text-lg font-semibold text-ink">
-            One item is out of stock
+            {originalProduct ? `${originalProduct.name} is out of stock` : "One item is out of stock"}
           </h2>
           <p className="mt-1 text-sm text-ink/70" aria-live="polite">
             {expired ? (
@@ -92,8 +105,13 @@ export function SubstitutionModal({ orderId, item }: { orderId: string; item: Or
                 className="flex w-full items-center justify-between rounded-xl border border-ink/10 px-4 py-3 text-left transition hover:border-crate hover:bg-crate/5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="text-ink">{candidate.name}</span>
-                <span className="tabular-nums text-sm text-ink/70">
-                  {formatPaise(candidate.pricePaise)}
+                <span className="flex flex-col items-end tabular-nums">
+                  <span className="text-sm text-ink/70">{formatPaise(candidate.pricePaise)}</span>
+                  {originalProduct && (
+                    <span className="text-xs text-ink/70">
+                      {formatPriceDiff(candidate.pricePaise - originalProduct.pricePaise)}
+                    </span>
+                  )}
                 </span>
               </button>
             ))}

@@ -11,7 +11,11 @@ type AnyStatus = OrderStatus | ItemStatus;
 // their own tinted pill background; verified contrast ratios are next to
 // each dark token's definition in index.css.
 const STATUS_STYLE: Record<AnyStatus, { label: string; className: string }> = {
-  PLACED: { label: "Placed", className: "bg-crate/10 text-crate" },
+  // PLACED shares PENDING's neutral treatment, not PICKING's blue — both are
+  // "nothing's actively happening yet" states (an order waiting to be picked
+  // up, an item waiting to be picked), so crate blue is reserved for the one
+  // status that means active, in-progress work.
+  PLACED: { label: "Placed", className: "bg-ink/5 text-ink/70" },
   PICKING: { label: "Picking", className: "bg-crate/10 text-crate" },
   PACKED: { label: "Packed", className: "bg-fresh/10 text-fresh-dark" },
   DISPATCHED: { label: "Dispatched", className: "bg-fresh/10 text-fresh-dark" },

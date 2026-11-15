@@ -86,8 +86,8 @@ func seedProducts(ctx context.Context, pool *pgxpool.Pool) ([]seededProduct, err
 		products[i] = seededProduct{id: db.NewUUID(), category: p.category, pricePaise: p.pricePaise}
 
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO products (id, name, category, price_paise) VALUES ($1, $2, $3, $4)`,
-			products[i].id, p.name, p.category, p.pricePaise,
+			`INSERT INTO products (id, name, category, subcategory, price_paise) VALUES ($1, $2, $3, $4, $5)`,
+			products[i].id, p.name, p.category, p.subcategory, p.pricePaise,
 		); err != nil {
 			return nil, fmt.Errorf("insert product %q: %w", p.name, err)
 		}

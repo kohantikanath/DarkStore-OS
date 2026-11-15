@@ -131,6 +131,14 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string { return e.Message }
 
+// SubstitutionPendingError means an order can't be packed because at least
+// one of its items is still AWAITING_SUBSTITUTE — see CanPackOrder.
+type SubstitutionPendingError struct{}
+
+func (e *SubstitutionPendingError) Error() string {
+	return "cannot pack while an item is awaiting a substitution decision"
+}
+
 // ExpiredError means a substitution choice arrived after its 60-second
 // window had already passed (or, on a very close race, after the expiry
 // ticker had already refunded it).

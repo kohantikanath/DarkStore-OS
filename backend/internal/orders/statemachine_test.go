@@ -78,6 +78,51 @@ func TestCanMarkItemShort(t *testing.T) {
 	}
 }
 
+func TestCanPackOrder(t *testing.T) {
+	tests := []struct {
+		name        string
+		orderStatus OrderStatus
+		awaiting    bool
+		want        bool
+	}{
+		{"picking, nothing awaiting", StatusPicking, false, true},
+		{"picking, one item awaiting", StatusPicking, true, false},
+		{"placed, nothing awaiting", StatusPlaced, false, false},
+		{"packed, nothing awaiting", StatusPacked, false, false},
+		{"dispatched, nothing awaiting", StatusDispatched, false, false},
+	}
+
+	for _, tt := range tests {
+		got := CanPackOrder(tt.orderStatus, tt.awaiting)
+		if got != tt.want {
+			t.Errorf("%s: CanPackOrder(%s, %v) = %v, want %v", tt.name, tt.orderStatus, tt.awaiting, got, tt.want)
+		}
+	}
+}
+
+func TestCanChooseSubstitute(t *testing.T) {
+	allOrderStatuses := []OrderStatus{StatusPlaced, StatusPicking, StatusPacked, StatusDispatched}
+	allItemStatuses := []ItemStatus{
+		ItemPending, ItemPicked, ItemAwaitingSubstitute, ItemSubstituted, ItemRefunded,
+	}
+
+	// Only an AWAITING_SUBSTITUTE item on a still-PICKING order may be
+	// resolved by a substitution choice.
+	allowed := map[[2]any]bool{
+		{StatusPicking, ItemAwaitingSubstitute}: true,
+	}
+
+	for _, orderStatus := range allOrderStatuses {
+		for _, itemStatus := range allItemStatuses {
+			want := allowed[[2]any{orderStatus, itemStatus}]
+			got := CanChooseSubstitute(orderStatus, itemStatus)
+			if got != want {
+				t.Errorf("CanChooseSubstitute(%s, %s) = %v, want %v", orderStatus, itemStatus, got, want)
+			}
+		}
+	}
+}
+
 func TestIsDueForExpiry(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	past := now.Add(-1 * time.Second)

@@ -45,3 +45,14 @@ export function computeCartSummary(
 export function formatPaise(paise: number): string {
   return `₹${(paise / 100).toFixed(2)}`;
 }
+
+// A substitute candidate's price relative to the original item, for the
+// substitution modal ("Mother Dairy Curd 400g +₹3.00"). Keeping the sign
+// out front of the currency symbol (formatPaise alone would render a
+// negative diff as the odd-looking "₹-2.00") and calling out "Same price"
+// for an exact match rather than printing "+₹0.00".
+export function formatPriceDiff(diffPaise: number): string {
+  if (diffPaise === 0) return "Same price";
+  const sign = diffPaise > 0 ? "+" : "−";
+  return `${sign}${formatPaise(Math.abs(diffPaise))}`;
+}

@@ -23,10 +23,11 @@ import (
 var ErrNotFound = errors.New("products: not found")
 
 type Product struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Category   string `json:"category"`
-	PricePaise int    `json:"pricePaise"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Category    string `json:"category"`
+	Subcategory string `json:"subcategory"`
+	PricePaise  int    `json:"pricePaise"`
 }
 
 type Repository struct {
@@ -39,7 +40,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 func (r *Repository) List(ctx context.Context) ([]Product, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, name, category, price_paise FROM products ORDER BY category, name`)
+		`SELECT id, name, category, subcategory, price_paise FROM products ORDER BY category, name`)
 	if err != nil {
 		return nil, fmt.Errorf("products: list: %w", err)
 	}
@@ -48,7 +49,7 @@ func (r *Repository) List(ctx context.Context) ([]Product, error) {
 	var out []Product
 	for rows.Next() {
 		var p Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.PricePaise); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Subcategory, &p.PricePaise); err != nil {
 			return nil, fmt.Errorf("products: scan: %w", err)
 		}
 		out = append(out, p)
@@ -111,8 +112,8 @@ func (r *Repository) RandomProductIDs(ctx context.Context, n int) ([]string, err
 func (r *Repository) GetProduct(ctx context.Context, id string) (*Product, error) {
 	var p Product
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, name, category, price_paise FROM products WHERE id = $1`, id,
-	).Scan(&p.ID, &p.Name, &p.Category, &p.PricePaise)
+		`SELECT id, name, category, subcategory, price_paise FROM products WHERE id = $1`, id,
+	).Scan(&p.ID, &p.Name, &p.Category, &p.Subcategory, &p.PricePaise)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -129,27 +130,63 @@ type SubstituteCandidate struct {
 	PricePaise int    `json:"pricePaise"`
 }
 
-// SubstituteCandidates finds up to limit same-category products, priced
-// within ±30% of targetPricePaise, with at least minAvailable units in
-// stock, sorted by closest price match — per the spec's substitution rules.
+// substituteCandidatesBySubcategorySQL and substituteCandidatesByCategorySQL
+// are identical but for which column they match on — kept as two explicit
+// queries rather than one with an interpolated column name, so there's never
+// any dynamic SQL construction to reason about, even though matchColumn
+// would only ever be one of these two fixed strings.
+const substituteCandidatesBySubcategorySQL = `
+	SELECT p.id, p.name, p.price_paise
+	FROM products p
+	JOIN stock s ON s.product_id = p.id
+	WHERE p.subcategory = $1
+	  AND p.id != $2
+	  AND s.available >= $3
+	  AND p.price_paise BETWEEN $4 AND $5
+	ORDER BY ABS(p.price_paise - $6)
+	LIMIT $7`
+
+const substituteCandidatesByCategorySQL = `
+	SELECT p.id, p.name, p.price_paise
+	FROM products p
+	JOIN stock s ON s.product_id = p.id
+	WHERE p.category = $1
+	  AND p.id != $2
+	  AND s.available >= $3
+	  AND p.price_paise BETWEEN $4 AND $5
+	ORDER BY ABS(p.price_paise - $6)
+	LIMIT $7`
+
+// SubstituteCandidates finds up to limit replacement products for a short
+// item, priced within ±30% of targetPricePaise with at least minAvailable
+// units in stock, sorted by closest price match. Prefers a same-subcategory
+// match (another curd for curd, not butter for curd just because both are
+// Dairy) and only broadens to the whole category if the subcategory alone
+// turns up nothing — a narrow subcategory can legitimately have no other
+// members in stock (there's only one Paneer SKU in the seed catalog, say),
+// where falling back to "anything else in Dairy" is still a much better
+// customer experience than offering no replacement at all.
 func (r *Repository) SubstituteCandidates(
-	ctx context.Context, category, excludeProductID string, minAvailable, targetPricePaise, limit int,
+	ctx context.Context, category, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int,
 ) ([]SubstituteCandidate, error) {
 	low := int(float64(targetPricePaise) * 0.7)
 	high := int(math.Ceil(float64(targetPricePaise) * 1.3))
 
-	rows, err := r.pool.Query(ctx, `
-		SELECT p.id, p.name, p.price_paise
-		FROM products p
-		JOIN stock s ON s.product_id = p.id
-		WHERE p.category = $1
-		  AND p.id != $2
-		  AND s.available >= $3
-		  AND p.price_paise BETWEEN $4 AND $5
-		ORDER BY ABS(p.price_paise - $6)
-		LIMIT $7`,
-		category, excludeProductID, minAvailable, low, high, targetPricePaise, limit,
-	)
+	bySubcategory, err := r.queryCandidates(ctx, substituteCandidatesBySubcategorySQL,
+		subcategory, excludeProductID, minAvailable, low, high, targetPricePaise, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(bySubcategory) > 0 {
+		return bySubcategory, nil
+	}
+
+	return r.queryCandidates(ctx, substituteCandidatesByCategorySQL,
+		category, excludeProductID, minAvailable, low, high, targetPricePaise, limit)
+}
+
+func (r *Repository) queryCandidates(ctx context.Context, sql string, args ...any) ([]SubstituteCandidate, error) {
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("products: substitute candidates: %w", err)
 	}

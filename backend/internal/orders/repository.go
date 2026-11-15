@@ -114,6 +114,25 @@ func (r *Repository) MarkRemainingItemsPicked(ctx context.Context, tx pgx.Tx, or
 	return nil
 }
 
+// HasItemAwaitingSubstitute reports whether any item on the order is
+// currently AWAITING_SUBSTITUTE. Pack calls this from inside the same
+// transaction that already locked the order row via TransitionOrderStatus,
+// so it can't race with a concurrent MarkItemShort, ChooseSubstitute, or
+// expiry refund — all three lock the order row too (GetItemForUpdate's "FOR
+// UPDATE OF oi, o"), so one transaction simply waits for the other to
+// commit or roll back rather than the two interleaving.
+func (r *Repository) HasItemAwaitingSubstitute(ctx context.Context, tx pgx.Tx, orderID string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM order_items WHERE order_id = $1 AND status = $2)`,
+		orderID, ItemAwaitingSubstitute,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("orders: has item awaiting substitute: %w", err)
+	}
+	return exists, nil
+}
+
 // itemForUpdate is a row-locked snapshot of one order_item, joined with its
 // parent order's status — the short/substitute flows need both at once to
 // validate preconditions (order must be PICKING, item must be in the right

@@ -25,7 +25,7 @@ type catalog interface {
 	PriceLookup(ctx context.Context, ids []string) (map[string]int, error)
 	RandomProductIDs(ctx context.Context, n int) ([]string, error)
 	GetProduct(ctx context.Context, id string) (*products.Product, error)
-	SubstituteCandidates(ctx context.Context, category, excludeProductID string, minAvailable, targetPricePaise, limit int) ([]products.SubstituteCandidate, error)
+	SubstituteCandidates(ctx context.Context, category, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int) ([]products.SubstituteCandidate, error)
 }
 
 // broadcaster is the one thing Service needs from the ws package, narrowed to
@@ -164,8 +164,29 @@ func (s *Service) StartPicking(ctx context.Context, id string) (*Order, error) {
 
 // Pack moves an order from PICKING to PACKED, and finalizes any items still
 // PENDING to PICKED in the same transaction (see MarkRemainingItemsPicked).
+// Refuses with SubstitutionPendingError if any item is still
+// AWAITING_SUBSTITUTE — see packExtra and CanPackOrder.
 func (s *Service) Pack(ctx context.Context, id string) (*Order, error) {
-	return s.transition(ctx, id, StatusPicking, StatusPacked, s.repo.MarkRemainingItemsPicked)
+	return s.transition(ctx, id, StatusPicking, StatusPacked, s.packExtra)
+}
+
+// packExtra runs as transition's "extra" step, inside the same transaction
+// that already locked the order row (TransitionOrderStatus's own
+// SELECT ... FOR UPDATE) — see HasItemAwaitingSubstitute for why that
+// ordering is what makes this check race-safe. By this point the order's
+// status is already known to have been StatusPicking (TransitionOrderStatus
+// would have failed otherwise), so CanPackOrder's first condition is really
+// just documenting the rule for readers and tests, not re-deriving
+// something this call site doesn't already know.
+func (s *Service) packExtra(ctx context.Context, tx pgx.Tx, orderID string) error {
+	awaiting, err := s.repo.HasItemAwaitingSubstitute(ctx, tx, orderID)
+	if err != nil {
+		return err
+	}
+	if !CanPackOrder(StatusPicking, awaiting) {
+		return &SubstitutionPendingError{}
+	}
+	return s.repo.MarkRemainingItemsPicked(ctx, tx, orderID)
 }
 
 // Dispatch moves an order from PACKED to DISPATCHED.
@@ -249,7 +270,7 @@ func (s *Service) MarkItemShort(ctx context.Context, orderID, itemID string, sho
 	}
 
 	found, err := s.catalog.SubstituteCandidates(
-		ctx, product.Category, product.ID, shortQty, product.PricePaise, maxSubstituteCandidates,
+		ctx, product.Category, product.Subcategory, product.ID, shortQty, product.PricePaise, maxSubstituteCandidates,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("orders: mark short: %w", err)
@@ -329,7 +350,7 @@ func (s *Service) ChooseSubstitute(
 	if item.OrderID != orderID {
 		return nil, ErrNotFound
 	}
-	if !CanTransitionItem(ItemStatus(item.ItemStatus), ItemSubstituted) {
+	if !CanChooseSubstitute(OrderStatus(item.OrderStatus), ItemStatus(item.ItemStatus)) {
 		return nil, &TransitionError{
 			Entity: "item", From: item.ItemStatus, To: string(ItemSubstituted),
 		}

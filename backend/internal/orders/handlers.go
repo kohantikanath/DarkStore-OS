@@ -232,9 +232,12 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, step func(c
 	order, err := step(r.Context(), id)
 	if err != nil {
 		var transitionErr *TransitionError
+		var substitutionPendingErr *SubstitutionPendingError
 		switch {
 		case errors.Is(err, ErrNotFound):
 			httpx.WriteError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "no order with that id", nil)
+		case errors.As(err, &substitutionPendingErr):
+			httpx.WriteError(w, http.StatusConflict, "SUBSTITUTION_PENDING", substitutionPendingErr.Error(), nil)
 		case errors.As(err, &transitionErr):
 			httpx.WriteError(w, http.StatusConflict, "INVALID_TRANSITION", transitionErr.Error(), nil)
 		default:

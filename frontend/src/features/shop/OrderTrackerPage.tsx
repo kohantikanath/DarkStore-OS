@@ -28,7 +28,7 @@ export function OrderTrackerPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const order = useOrder(orderId ?? "");
   const products = useProducts();
-  const productNameById = new Map((products.data ?? []).map((p) => [p.id, p.name]));
+  const productById = new Map((products.data ?? []).map((p) => [p.id, p]));
 
   useEffect(() => {
     if (orderId) subscribe(`order:${orderId}`);
@@ -120,7 +120,7 @@ export function OrderTrackerPage() {
         {order.data.items.map((item) => (
           <li key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
             <span className="text-ink">
-              {productNameById.get(item.productId) ?? item.productId}{" "}
+              {productById.get(item.productId)?.name ?? item.productId}{" "}
               <span className="text-ink/70">× {item.qty}</span>
             </span>
             <StatusPill status={item.status} label={itemStatusLabel[item.status]} />
@@ -128,7 +128,13 @@ export function OrderTrackerPage() {
         ))}
       </ul>
 
-      {awaitingItem && <SubstitutionModal orderId={order.data.id} item={awaitingItem} />}
+      {awaitingItem && (
+        <SubstitutionModal
+          orderId={order.data.id}
+          item={awaitingItem}
+          originalProduct={productById.get(awaitingItem.productId)}
+        />
+      )}
     </div>
   );
 }

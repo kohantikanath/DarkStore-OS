@@ -75,8 +75,14 @@ const OrderRow = memo(function OrderRow({
       <span className="truncate font-display tabular-nums text-ink/70">
         #{order.id.slice(0, 8)}
       </span>
-      <span>
+      <span className="flex flex-col gap-0.5">
         <StatusPill status={order.status} />
+        {order.awaitingSubstitution && (
+          <span className="flex items-center gap-1 text-xs font-medium text-safety-dark">
+            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-safety" />
+            Awaiting customer
+          </span>
+        )}
       </span>
       <span className="font-display tabular-nums">{order.version}</span>
       <span className="font-display tabular-nums">{order.itemCount}</span>

@@ -75,9 +75,21 @@ export function PickerOrderDetail() {
   // separate "mark picked" action — see backend/internal/orders/repository.go
   // MarkRemainingItemsPicked), so it's available any time the order is
   // PICKING, not gated on every item having already been individually
-  // resolved.
+  // resolved — except an item the customer hasn't decided on yet: packing
+  // around that would silently finalize the order out from under their
+  // still-open decision, so the backend rejects it (409 SUBSTITUTION_PENDING)
+  // and the button is disabled here too, for the same reason.
+  const awaitingCount = order.data.items.filter(
+    (item) => item.status === "AWAITING_SUBSTITUTE",
+  ).length;
   const canPack = order.data.status === "PICKING";
   const canDispatch = order.data.status === "PACKED";
+
+  const packErrorMessage = pack.isError
+    ? pack.error instanceof ApiError && pack.error.code === "SUBSTITUTION_PENDING"
+      ? "Can't pack yet — the customer still has a replacement to choose."
+      : "Couldn't pack this order."
+    : null;
 
   return (
     <div>
@@ -108,7 +120,7 @@ export function PickerOrderDetail() {
         ))}
       </ul>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {canStartPicking && (
           <button
             type="button"
@@ -123,12 +135,18 @@ export function PickerOrderDetail() {
           <button
             type="button"
             onClick={() => pack.mutate(orderId)}
-            disabled={pack.isPending}
-            className="min-h-12 rounded-full bg-crate px-6 font-medium text-white hover:bg-crate-dark disabled:opacity-50"
+            disabled={pack.isPending || awaitingCount > 0}
+            className="min-h-12 rounded-full bg-crate px-6 font-medium text-white hover:bg-crate-dark disabled:cursor-not-allowed disabled:opacity-50"
           >
             Pack
           </button>
         )}
+        {canPack && awaitingCount > 0 && (
+          <span className="text-sm text-ink/70">
+            Waiting for the customer on {awaitingCount} item{awaitingCount === 1 ? "" : "s"}
+          </span>
+        )}
+        {packErrorMessage && <span className="text-sm text-alert-dark">{packErrorMessage}</span>}
         {canDispatch && (
           <button
             type="button"

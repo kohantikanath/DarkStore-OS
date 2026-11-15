@@ -68,6 +68,28 @@ func CanMarkItemShort(orderStatus OrderStatus, itemStatus ItemStatus) bool {
 	return orderStatus == StatusPicking && CanTransitionItem(itemStatus, ItemAwaitingSubstitute)
 }
 
+// CanPackOrder reports whether an order may be packed: it must be PICKING,
+// and no item on it may still be AWAITING_SUBSTITUTE. Packing finalizes
+// every still-PENDING item to PICKED (see Repository.MarkRemainingItemsPicked)
+// — doing that while an item is mid-substitution would silently steamroll a
+// decision the customer hasn't made yet (or a refund the expiry ticker
+// hasn't gotten to yet).
+func CanPackOrder(orderStatus OrderStatus, anyItemAwaitingSubstitution bool) bool {
+	return orderStatus == StatusPicking && !anyItemAwaitingSubstitution
+}
+
+// CanChooseSubstitute reports whether a customer's substitution choice may
+// be applied: the item must still be AWAITING_SUBSTITUTE, and — the same
+// order-level gate CanMarkItemShort enforces on the way in — the order
+// itself must still be PICKING. In practice an order can only leave PICKING
+// via Pack, and Pack itself now refuses to run while any item is still
+// AWAITING_SUBSTITUTE (CanPackOrder), so this should be unreachable through
+// the API alone; checked anyway as the same defense-in-depth the rest of
+// this package applies to every other transition.
+func CanChooseSubstitute(orderStatus OrderStatus, itemStatus ItemStatus) bool {
+	return orderStatus == StatusPicking && CanTransitionItem(itemStatus, ItemSubstituted)
+}
+
 // IsDueForExpiry reports whether an AWAITING_SUBSTITUTE item's deadline has
 // passed, given the status and expiresAt it had at read time. The expiry
 // ticker (Service.ExpireDueSubstitutions) re-checks this inside a

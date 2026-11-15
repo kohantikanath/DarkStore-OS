@@ -14,9 +14,11 @@ import type {
   OrderSummary,
   SubstituteCandidate,
 } from "../types/order";
+import type { Product } from "../types/product";
 import { catalog, findProduct } from "./catalog";
 
 const SUBSTITUTION_WINDOW_MS = 60_000;
+const MAX_SUBSTITUTE_CANDIDATES = 2;
 
 interface StockEntry {
   available: number;
@@ -183,6 +185,19 @@ export function startPicking(id: string): MockResult<Order> {
 }
 
 export function pack(id: string): MockResult<Order> {
+  const order = orders.get(id);
+  // Mirrors the backend's CanPackOrder: packing finalizes every still-PENDING
+  // item to PICKED, which must not run out from under an item the customer
+  // hasn't decided on yet (or the expiry timer hasn't resolved yet).
+  if (order?.status === "PICKING" && order.items.some((i) => i.status === "AWAITING_SUBSTITUTE")) {
+    return {
+      ok: false,
+      status: 409,
+      code: "SUBSTITUTION_PENDING",
+      message: "cannot pack while an item is awaiting a substitution decision",
+    };
+  }
+
   return transition(id, "PICKING", "PACKED", (order) => {
     for (const item of order.items) {
       if (item.status === "PENDING") item.status = "PICKED";
@@ -199,6 +214,37 @@ function findItem(orderId: string, itemId: string): { order: Order; item: OrderI
   const item = order?.items.find((i) => i.id === itemId);
   if (!order || !item) return undefined;
   return { order, item };
+}
+
+// Candidates within ±30% of product's price, in the given tier (its own
+// subcategory, or its whole category), that currently have enough available
+// stock — checked against the stock Map directly (not via reserve(), which
+// would mutate state) so the tier-fallback decision in markItemShort is
+// based on "is there anything to offer", the same thing the backend's own
+// SQL WHERE s.available >= minAvailable checks before deciding whether to
+// fall back to the category-wide query.
+function findSubstituteMatches(
+  product: Product,
+  shortQty: number,
+  tier: "subcategory" | "category",
+): Product[] {
+  const low = product.pricePaise * 0.7;
+  const high = product.pricePaise * 1.3;
+
+  return catalog
+    .filter((p) => p.id !== product.id)
+    .filter((p) =>
+      tier === "subcategory"
+        ? p.subcategory === product.subcategory
+        : p.category === product.category,
+    )
+    .filter((p) => p.pricePaise >= low && p.pricePaise <= high)
+    .filter((p) => (stock.get(p.id)?.available ?? 0) >= shortQty)
+    .sort(
+      (a, b) =>
+        Math.abs(a.pricePaise - product.pricePaise) - Math.abs(b.pricePaise - product.pricePaise),
+    )
+    .slice(0, MAX_SUBSTITUTE_CANDIDATES);
 }
 
 export function markItemShort(
@@ -234,16 +280,16 @@ export function markItemShort(
 
   writeOff(item.productId, shortQty);
 
-  const low = product.pricePaise * 0.7;
-  const high = product.pricePaise * 1.3;
-  const candidates: SubstituteCandidate[] = catalog
-    .filter((p) => p.category === product.category && p.id !== product.id)
-    .filter((p) => p.pricePaise >= low && p.pricePaise <= high)
-    .sort(
-      (a, b) =>
-        Math.abs(a.pricePaise - product.pricePaise) - Math.abs(b.pricePaise - product.pricePaise),
-    )
-    .slice(0, 2)
+  // Mirrors the backend's two-tier SubstituteCandidates: a same-subcategory
+  // match first (another curd for curd, not butter just because both are
+  // Dairy), falling back to the whole category only if the subcategory
+  // alone has nothing else in stock and in the price band.
+  let matched = findSubstituteMatches(product, shortQty, "subcategory");
+  if (matched.length === 0) {
+    matched = findSubstituteMatches(product, shortQty, "category");
+  }
+
+  const candidates: SubstituteCandidate[] = matched
     .filter((p) => reserve(p.id, shortQty).ok)
     .map((p) => ({ productId: p.id, name: p.name, pricePaise: p.pricePaise }));
 
@@ -292,7 +338,11 @@ export function chooseSubstitute(
     return { ok: false, status: 404, code: "ORDER_NOT_FOUND", message: "no matching order/item" };
   const { order, item } = found;
 
-  if (item.status !== "AWAITING_SUBSTITUTE") {
+  // Mirrors the backend's CanChooseSubstitute: the order itself must still
+  // be PICKING, not just the item still AWAITING_SUBSTITUTE — in practice
+  // unreachable now that pack() above refuses to run while any item awaits,
+  // but checked anyway rather than trusting that invariant from a distance.
+  if (order.status !== "PICKING" || item.status !== "AWAITING_SUBSTITUTE") {
     return {
       ok: false,
       status: 409,

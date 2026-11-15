@@ -1,5 +1,7 @@
 # DarkStore OS
 
+[![CI](https://github.com/kohantikanath/DarkStore-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/kohantikanath/DarkStore-OS/actions/workflows/ci.yml)
+
 **A real-time fulfillment platform for a Zepto-style dark store, with one headline
 feature: when a picker finds an item out of stock mid-order, the customer gets a live
 popup — with a real countdown — to pick a replacement before it's auto-refunded.**
@@ -7,9 +9,9 @@ popup — with a real countdown — to pick a replacement before it's auto-refun
 🔗 **[Try it live](https://darkstore-os.netlify.app)** — backend is on Render's free
 tier, so the first load can take up to a minute to wake up.
 
-| Shop — substitution bottom sheet | Picker — marking an item short | Ops — a live "awaiting substitution" row |
+| Shop — the substitution dialog (styled as a bottom sheet) | Picker — Pack blocked on a pending decision | Ops — a live "awaiting substitution" row |
 |:---:|:---:|:---:|
-| ![Customer order tracker with the live substitution bottom sheet open, showing a 28-second countdown and two replacement options](docs/screenshots/shop-substitution.jpg) | ![Picker order detail with one item awaiting the customer, highlighted with a yellow left edge and a live countdown, and two more items with a red-outlined Short button](docs/screenshots/picker.jpg) | ![Store Manager ops table with a live count on the Awaiting substitution filter chip and a yellow-edged row for the order currently awaiting a decision](docs/screenshots/ops.jpg) |
+| ![Customer order tracker with the substitution dialog open, naming the out-of-stock item, with a live countdown and two replacement options each showing their price difference from the original](docs/screenshots/shop-substitution.jpg) | ![Picker order detail with one item awaiting the customer, highlighted with a yellow left edge and a live countdown; the Pack button is disabled with a "Waiting for the customer on 1 item" hint](docs/screenshots/picker.jpg) | ![Store Manager ops table with a live count on the Awaiting substitution filter chip and a yellow-edged row for the order currently awaiting a decision](docs/screenshots/ops.jpg) |
 
 **What's technically interesting here:**
 
@@ -380,6 +382,32 @@ Key decisions below for the one behavioral difference that comes with that.
   identical shape of plan to before the column was added) and mirrored
   on the frontend by `orderToSummary` (`lib/cache.ts`) for orders arriving
   live over the WebSocket, so both paths agree on what the flag means.
+- **Pack now refuses to run while any item is still `AWAITING_SUBSTITUTE`,
+  and `ChooseSubstitute` now also requires the order itself still be
+  `PICKING`** — a real bug a repo review caught: packing bulk-finalizes
+  every `PENDING` item to `PICKED` (`MarkRemainingItemsPicked`), which was
+  previously allowed to run right over an item the customer hadn't decided
+  on yet, silently abandoning that decision. The check (`CanPackOrder`)
+  runs inside the same transaction that already locked the order row via
+  `TransitionOrderStatus`, which is what makes it race-safe against a
+  concurrent `MarkItemShort`/`ChooseSubstitute`/expiry-refund: all three
+  lock the order row too (`GetItemForUpdate`'s `FOR UPDATE OF oi, o`), so
+  one transaction simply waits for the other rather than the two
+  interleaving. The `ChooseSubstitute` check is, in practice, now
+  unreachable through the API alone (an order can only leave `PICKING` via
+  the now-blocked `Pack`) — added anyway as the same defense-in-depth this
+  package applies to every other transition, not something to rely on
+  staying unreachable as the code changes.
+- **Substitute matching prefers the same subcategory first** (`products`
+  has a `subcategory` column alongside `category` — e.g. "Milk" and
+  "Curd" within "Dairy"), **falling back to the whole category only if the
+  subcategory alone has nothing in stock and in the price band.** Two
+  products sharing a broad category are often poor substitutes for each
+  other (butter for milk); subcategory narrows that down to something a
+  customer would actually accept, while the fallback still means a
+  genuinely singleton subcategory (there's only one Paneer SKU in the seed
+  catalog) doesn't dead-end into "no replacement offered" when a same-category
+  item would have done fine.
 
 ## Known limitations / out of scope
 
