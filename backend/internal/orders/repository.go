@@ -329,11 +329,20 @@ func getOrder(ctx context.Context, q queryRower, id string) (*Order, error) {
 // every order_item row either way, so folding the check into the existing
 // aggregate costs nothing extra, where a second subquery would mean a
 // second index lookup per row across all 10,000+ orders.
+//
+// Wrapped in COALESCE(..., false): bool_or aggregates to NULL for a group
+// with no non-NULL input, which is exactly what an order with zero
+// order_items rows produces through the LEFT JOIN — confirmed directly
+// against Postgres, and an order should never actually have zero items,
+// but without this, a NULL here wouldn't quietly read as "not awaiting a
+// substitution" — pgx refuses to scan NULL into a plain bool at all
+// ("cannot scan NULL into *bool"), confirmed directly too, so it would
+// fail this entire query, for every order, not just the itemless one.
 func (r *Repository) ListSummaries(ctx context.Context) ([]OrderSummary, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT o.id, o.status, o.version, o.total_paise, o.created_at, o.updated_at,
 		        count(oi.id),
-		        bool_or(oi.status = 'AWAITING_SUBSTITUTE')
+		        COALESCE(bool_or(oi.status = 'AWAITING_SUBSTITUTE'), false)
 		 FROM orders o
 		 LEFT JOIN order_items oi ON oi.order_id = o.id
 		 GROUP BY o.id
@@ -346,14 +355,12 @@ func (r *Repository) ListSummaries(ctx context.Context) ([]OrderSummary, error) 
 	var out []OrderSummary
 	for rows.Next() {
 		var s OrderSummary
-		var awaitingSubstitution *bool // bool_or over zero rows (no items) scans as NULL
 		if err := rows.Scan(
 			&s.ID, &s.Status, &s.Version, &s.TotalPaise, &s.CreatedAt, &s.UpdatedAt, &s.ItemCount,
-			&awaitingSubstitution,
+			&s.AwaitingSubstitution,
 		); err != nil {
 			return nil, fmt.Errorf("orders: scan summary: %w", err)
 		}
-		s.AwaitingSubstitution = awaitingSubstitution != nil && *awaitingSubstitution
 		out = append(out, s)
 	}
 
