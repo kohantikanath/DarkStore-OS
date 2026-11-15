@@ -1,7 +1,7 @@
 # DarkStore OS
 
-> Status: Phase 2 — REST API for the catalog and order creation/reads.
-> No WebSocket, no pick/pack/dispatch yet, no frontend yet.
+> Status: Phase 3 — order state machine + live WebSocket updates. No
+> substitution flow yet (Phase 8), no frontend yet (Phase 5+).
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -71,12 +71,36 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   lookup and both create an order — true safety would need a unique-insert-
   first pattern or a row lock. Not worth the complexity here since the
   frontend only ever issues one request per generated key.
+- **No "mark item picked" endpoint.** The item state machine allows
+  `PENDING → PICKED`, but the only item-level action a picker takes is
+  marking something *short* — everything else is implicitly picked. So
+  `pack` bulk-finalizes any still-`PENDING` items to `PICKED` in the same
+  transaction as the order's own `PICKING → PACKED` move, instead of making
+  the picker confirm each item individually.
+- **`TransitionOrderStatus` reads the current status with `SELECT ... FOR
+  UPDATE` before deciding**, rather than relying purely on a conditional
+  `UPDATE`'s rows-affected count (like stock reservation does). The
+  difference: a failed stock reservation only ever means "not enough stock,"
+  but a failed transition could mean either "order doesn't exist" (404) or
+  "order exists but is in the wrong state" (409) — a plain conditional UPDATE
+  can't tell those apart, so this needs the extra read.
+- **Broadcasting happens in the service layer, right after `tx.Commit`
+  succeeds** — not in the HTTP handler. That keeps "change the order" and
+  "tell everyone it changed" atomic from the caller's point of view: every
+  successful API response implies a broadcast already went out (or is about
+  to), and a handler can't forget to wire one up for a new transition.
 
 ## Known limitations / out of scope
 
 Payments, maps, rider tracking, real authentication, a finance module, Redis, and offline
 mode are intentionally out of scope for this build. Noted here as future improvements,
 not oversights.
+
+**WebSocket channel authorization**: `/ws` lets any client subscribe to
+`order:<id>` for any ID it already knows, with no check that the connecting
+customer actually owns that order. That's acceptable for a demo with fake
+login, but a real deployment must verify ownership (e.g. from a session
+token) before allowing the subscription.
 
 ## Running locally
 
@@ -128,8 +152,25 @@ curl -X POST http://localhost:8080/api/orders \
   -d '{"items":[{"productId":"<a product id from /api/products>","qty":1}]}'
 ```
 
-No frontend yet (Phase 5+), and no WebSocket or pick/pack/dispatch/substitute
-endpoints yet (Phase 3).
+The order now moves through its full lifecycle, broadcasting every change
+over `/ws`:
+
+```bash
+curl -X POST http://localhost:8080/api/orders/<id>/start-picking
+curl -X POST http://localhost:8080/api/orders/<id>/pack
+curl -X POST http://localhost:8080/api/orders/<id>/dispatch
+```
+
+Watch the live events (needs a WebSocket client — `wscat`, or the snippet
+below with Python's `websocket-client`):
+
+```bash
+# wscat -c ws://localhost:8080/ws
+# then send: {"type":"subscribe","channel":"ops"}
+```
+
+`short`/`substitute` (the Live Substitution flow) and the frontend are still
+ahead — Phase 8 and Phase 5+ respectively.
 
 ## Live links
 

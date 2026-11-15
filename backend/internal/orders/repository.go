@@ -67,6 +67,52 @@ func (r *Repository) InsertOrderItem(ctx context.Context, tx pgx.Tx, orderID str
 	return err
 }
 
+// TransitionOrderStatus moves an order from `from` to `to`, bumping version
+// by 1. It locks the row with FOR UPDATE and checks the current status
+// itself (rather than relying on a conditional UPDATE's rows-affected)
+// because it needs to tell "order doesn't exist" (404) apart from "order
+// exists but is in the wrong state" (409) — the conditional-update pattern
+// used by ReserveStock can't make that distinction on its own.
+func (r *Repository) TransitionOrderStatus(ctx context.Context, tx pgx.Tx, id string, from, to OrderStatus) error {
+	var current string
+	err := tx.QueryRow(ctx,
+		`SELECT status FROM orders WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("orders: read status for transition: %w", err)
+	}
+	if OrderStatus(current) != from {
+		return &TransitionError{Entity: "order", From: current, To: string(to)}
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE orders SET status = $1, version = version + 1, updated_at = now() WHERE id = $2`,
+		to, id,
+	); err != nil {
+		return fmt.Errorf("orders: transition order: %w", err)
+	}
+
+	return nil
+}
+
+// MarkRemainingItemsPicked bulk-finalizes every still-PENDING item on an
+// order to PICKED. There's no separate "mark this item picked" endpoint —
+// picking is the default outcome, and "short" is the one exception a picker
+// has to actively flag — so this runs as part of packing an order.
+func (r *Repository) MarkRemainingItemsPicked(ctx context.Context, tx pgx.Tx, orderID string) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE order_items SET status = $1 WHERE order_id = $2 AND status = $3`,
+		ItemPicked, orderID, ItemPending,
+	)
+	if err != nil {
+		return fmt.Errorf("orders: mark remaining items picked: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) GetOrder(ctx context.Context, id string) (*Order, error) {
 	var o Order
 	err := r.pool.QueryRow(ctx,

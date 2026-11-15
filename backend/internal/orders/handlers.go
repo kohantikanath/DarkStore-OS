@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -102,6 +103,44 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("orders: get: %v", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "something went wrong", nil)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, order)
+}
+
+// StartPicking handles POST /api/orders/{id}/start-picking.
+func (h *Handler) StartPicking(w http.ResponseWriter, r *http.Request) {
+	h.transition(w, r, h.service.StartPicking)
+}
+
+// Pack handles POST /api/orders/{id}/pack.
+func (h *Handler) Pack(w http.ResponseWriter, r *http.Request) {
+	h.transition(w, r, h.service.Pack)
+}
+
+// Dispatch handles POST /api/orders/{id}/dispatch.
+func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request) {
+	h.transition(w, r, h.service.Dispatch)
+}
+
+// transition is shared by all three order-status endpoints: they only differ
+// in which Service method moves the order forward.
+func (h *Handler) transition(w http.ResponseWriter, r *http.Request, step func(ctx context.Context, id string) (*Order, error)) {
+	id := chi.URLParam(r, "id")
+
+	order, err := step(r.Context(), id)
+	if err != nil {
+		var transitionErr *TransitionError
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "no order with that id", nil)
+		case errors.As(err, &transitionErr):
+			httpx.WriteError(w, http.StatusConflict, "INVALID_TRANSITION", transitionErr.Error(), nil)
+		default:
+			log.Printf("orders: transition: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "something went wrong", nil)
+		}
 		return
 	}
 

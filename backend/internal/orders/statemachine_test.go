@@ -1,0 +1,76 @@
+package orders
+
+import "testing"
+
+// Every pair is listed explicitly (not derived from orderTransitions) so
+// this test actually checks the state machine against the spec, rather than
+// checking the map against itself.
+func TestCanTransitionOrder(t *testing.T) {
+	allStatuses := []OrderStatus{StatusPlaced, StatusPicking, StatusPacked, StatusDispatched}
+
+	allowed := map[[2]OrderStatus]bool{
+		{StatusPlaced, StatusPicking}:    true,
+		{StatusPicking, StatusPacked}:    true,
+		{StatusPacked, StatusDispatched}: true,
+	}
+
+	for _, from := range allStatuses {
+		for _, to := range allStatuses {
+			want := allowed[[2]OrderStatus{from, to}]
+			got := CanTransitionOrder(from, to)
+			if got != want {
+				t.Errorf("CanTransitionOrder(%s, %s) = %v, want %v", from, to, got, want)
+			}
+		}
+	}
+}
+
+func TestCanTransitionItem(t *testing.T) {
+	allStatuses := []ItemStatus{
+		ItemPending, ItemPicked, ItemAwaitingSubstitute, ItemSubstituted, ItemRefunded,
+	}
+
+	allowed := map[[2]ItemStatus]bool{
+		{ItemPending, ItemPicked}:                 true,
+		{ItemPending, ItemAwaitingSubstitute}:     true,
+		{ItemAwaitingSubstitute, ItemSubstituted}: true,
+		{ItemAwaitingSubstitute, ItemRefunded}:    true,
+	}
+
+	for _, from := range allStatuses {
+		for _, to := range allStatuses {
+			want := allowed[[2]ItemStatus{from, to}]
+			got := CanTransitionItem(from, to)
+			if got != want {
+				t.Errorf("CanTransitionItem(%s, %s) = %v, want %v", from, to, got, want)
+			}
+		}
+	}
+}
+
+func TestCanMarkItemShort(t *testing.T) {
+	tests := []struct {
+		orderStatus OrderStatus
+		itemStatus  ItemStatus
+		want        bool
+	}{
+		// Only PENDING items on a PICKING order can be marked short.
+		{StatusPicking, ItemPending, true},
+		{StatusPlaced, ItemPending, false},
+		{StatusPacked, ItemPending, false},
+		{StatusDispatched, ItemPending, false},
+		// Even while PICKING, an item that's already resolved can't be
+		// marked short again.
+		{StatusPicking, ItemPicked, false},
+		{StatusPicking, ItemAwaitingSubstitute, false},
+		{StatusPicking, ItemSubstituted, false},
+		{StatusPicking, ItemRefunded, false},
+	}
+
+	for _, tt := range tests {
+		got := CanMarkItemShort(tt.orderStatus, tt.itemStatus)
+		if got != tt.want {
+			t.Errorf("CanMarkItemShort(%s, %s) = %v, want %v", tt.orderStatus, tt.itemStatus, got, tt.want)
+		}
+	}
+}

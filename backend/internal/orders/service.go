@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kohantikanath/darkstore-os/backend/internal/db"
@@ -20,14 +21,21 @@ type priceLookup interface {
 	PriceLookup(ctx context.Context, ids []string) (map[string]int, error)
 }
 
+// broadcaster is the one thing Service needs from the ws package, narrowed to
+// an interface for the same reason as priceLookup above.
+type broadcaster interface {
+	Broadcast(orderID, eventType string, order any)
+}
+
 type Service struct {
 	pool   *pgxpool.Pool
 	repo   *Repository
 	prices priceLookup
+	hub    broadcaster
 }
 
-func NewService(pool *pgxpool.Pool, repo *Repository, prices priceLookup) *Service {
-	return &Service{pool: pool, repo: repo, prices: prices}
+func NewService(pool *pgxpool.Pool, repo *Repository, prices priceLookup, hub broadcaster) *Service {
+	return &Service{pool: pool, repo: repo, prices: prices, hub: hub}
 }
 
 // CreateOrder validates the requested items against the catalog, reserves
@@ -81,7 +89,7 @@ func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items 
 
 	order := &Order{
 		ID:         db.NewUUID(),
-		Status:     "PLACED",
+		Status:     string(StatusPlaced),
 		Version:    1,
 		TotalPaise: totalPaise,
 	}
@@ -91,7 +99,7 @@ func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items 
 
 	order.Items = make([]OrderItem, len(items))
 	for i, item := range items {
-		orderItem := OrderItem{ID: db.NewUUID(), ProductID: item.ProductID, Qty: item.Qty, Status: "PENDING"}
+		orderItem := OrderItem{ID: db.NewUUID(), ProductID: item.ProductID, Qty: item.Qty, Status: string(ItemPending)}
 		if err := s.repo.InsertOrderItem(ctx, tx, order.ID, orderItem); err != nil {
 			return nil, fmt.Errorf("orders: create: insert item: %w", err)
 		}
@@ -105,6 +113,61 @@ func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("orders: create: commit: %w", err)
 	}
+
+	s.hub.Broadcast(order.ID, "order.created", order)
+
+	return order, nil
+}
+
+// StartPicking moves an order from PLACED to PICKING.
+func (s *Service) StartPicking(ctx context.Context, id string) (*Order, error) {
+	return s.transition(ctx, id, StatusPlaced, StatusPicking, nil)
+}
+
+// Pack moves an order from PICKING to PACKED, and finalizes any items still
+// PENDING to PICKED in the same transaction (see MarkRemainingItemsPicked).
+func (s *Service) Pack(ctx context.Context, id string) (*Order, error) {
+	return s.transition(ctx, id, StatusPicking, StatusPacked, s.repo.MarkRemainingItemsPicked)
+}
+
+// Dispatch moves an order from PACKED to DISPATCHED.
+func (s *Service) Dispatch(ctx context.Context, id string) (*Order, error) {
+	return s.transition(ctx, id, StatusPacked, StatusDispatched, nil)
+}
+
+// transition runs an order status change (and an optional extra step, e.g.
+// Pack's bulk item update) in one transaction, then re-reads the full order
+// to return and broadcast a fully up-to-date snapshot.
+func (s *Service) transition(
+	ctx context.Context, id string, from, to OrderStatus,
+	extra func(ctx context.Context, tx pgx.Tx, orderID string) error,
+) (*Order, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("orders: transition: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	if err := s.repo.TransitionOrderStatus(ctx, tx, id, from, to); err != nil {
+		return nil, err
+	}
+
+	if extra != nil {
+		if err := extra(ctx, tx, id); err != nil {
+			return nil, fmt.Errorf("orders: transition: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("orders: transition: commit: %w", err)
+	}
+
+	order, err := s.repo.GetOrder(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("orders: transition: reload: %w", err)
+	}
+
+	s.hub.Broadcast(order.ID, "order.updated", order)
 
 	return order, nil
 }

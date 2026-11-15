@@ -16,6 +16,7 @@ import (
 	"github.com/kohantikanath/darkstore-os/backend/internal/httpx"
 	"github.com/kohantikanath/darkstore-os/backend/internal/orders"
 	"github.com/kohantikanath/darkstore-os/backend/internal/products"
+	"github.com/kohantikanath/darkstore-os/backend/internal/ws"
 )
 
 func main() {
@@ -44,11 +45,13 @@ func main() {
 }
 
 func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
+	hub := ws.NewHub()
+
 	productsRepo := products.NewRepository(pool)
 	productsHandler := products.NewHandler(productsRepo)
 
 	ordersRepo := orders.NewRepository(pool)
-	ordersService := orders.NewService(pool, ordersRepo, productsRepo)
+	ordersService := orders.NewService(pool, ordersRepo, productsRepo, hub)
 	ordersHandler := orders.NewHandler(pool, ordersRepo, ordersService)
 
 	r := chi.NewRouter()
@@ -63,6 +66,12 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 	r.Post("/api/orders", ordersHandler.Create)
 	r.Get("/api/orders", ordersHandler.List)
 	r.Get("/api/orders/{id}", ordersHandler.Get)
+	r.Post("/api/orders/{id}/start-picking", ordersHandler.StartPicking)
+	r.Post("/api/orders/{id}/pack", ordersHandler.Pack)
+	r.Post("/api/orders/{id}/dispatch", ordersHandler.Dispatch)
+
+	// Not under /api: it's a WebSocket upgrade, not a REST resource.
+	r.Get("/ws", hub.Handler)
 
 	return r
 }
