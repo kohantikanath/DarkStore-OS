@@ -14,6 +14,7 @@ export function orderToSummary(order: Order): OrderSummary {
     itemCount: order.items.length,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    awaitingSubstitution: order.items.some((item) => item.status === "AWAITING_SUBSTITUTE"),
   };
 }
 

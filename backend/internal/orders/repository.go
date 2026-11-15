@@ -322,10 +322,18 @@ func getOrder(ctx context.Context, q queryRower, id string) (*Order, error) {
 // ListSummaries returns every order as a lightweight row (no item array) for
 // the ops table. It's a full-table read with no pagination — see the README
 // for why that's an acceptable trade-off at this project's scale.
+//
+// awaiting_substitution is computed with bool_or over the same
+// order_items join this query already does for item_count, rather than a
+// separate correlated EXISTS subquery per order — the join has to visit
+// every order_item row either way, so folding the check into the existing
+// aggregate costs nothing extra, where a second subquery would mean a
+// second index lookup per row across all 10,000+ orders.
 func (r *Repository) ListSummaries(ctx context.Context) ([]OrderSummary, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT o.id, o.status, o.version, o.total_paise, o.created_at, o.updated_at,
-		        count(oi.id)
+		        count(oi.id),
+		        bool_or(oi.status = 'AWAITING_SUBSTITUTE')
 		 FROM orders o
 		 LEFT JOIN order_items oi ON oi.order_id = o.id
 		 GROUP BY o.id
@@ -338,11 +346,14 @@ func (r *Repository) ListSummaries(ctx context.Context) ([]OrderSummary, error) 
 	var out []OrderSummary
 	for rows.Next() {
 		var s OrderSummary
+		var awaitingSubstitution *bool // bool_or over zero rows (no items) scans as NULL
 		if err := rows.Scan(
 			&s.ID, &s.Status, &s.Version, &s.TotalPaise, &s.CreatedAt, &s.UpdatedAt, &s.ItemCount,
+			&awaitingSubstitution,
 		); err != nil {
 			return nil, fmt.Errorf("orders: scan summary: %w", err)
 		}
+		s.AwaitingSubstitution = awaitingSubstitution != nil && *awaitingSubstitution
 		out = append(out, s)
 	}
 

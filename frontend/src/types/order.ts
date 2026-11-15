@@ -57,6 +57,10 @@ export type Order = z.infer<typeof OrderSchema>;
 
 // The lightweight shape GET /api/orders returns — no items array, so the ops
 // table can hold 10,000+ of these without pulling every order's full detail.
+// awaitingSubstitution is a derived flag (true if any item on the order is
+// AWAITING_SUBSTITUTE), not a stored column — see the backend's
+// ListSummaries and lib/cache.ts's orderToSummary — so the ops table can
+// highlight a row without the summary needing the full items array.
 export const OrderSummarySchema = z.object({
   id: z.string(),
   status: OrderStatusSchema,
@@ -65,6 +69,7 @@ export const OrderSummarySchema = z.object({
   itemCount: z.number().int().nonnegative(),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),
+  awaitingSubstitution: z.boolean(),
 });
 
 export type OrderSummary = z.infer<typeof OrderSummarySchema>;

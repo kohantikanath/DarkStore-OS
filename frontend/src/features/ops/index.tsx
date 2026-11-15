@@ -13,6 +13,7 @@ const statusOptions: { value: StatusFilter; label: string }[] = [
   { value: "PICKING", label: "Picking" },
   { value: "PACKED", label: "Packed" },
   { value: "DISPATCHED", label: "Dispatched" },
+  { value: "AWAITING_SUBSTITUTE", label: "Awaiting substitution" },
 ];
 const SIMULATE_INTERVAL_MS = 3000;
 
@@ -63,15 +64,22 @@ export default function OpsApp() {
       PICKING: 0,
       PACKED: 0,
       DISPATCHED: 0,
+      AWAITING_SUBSTITUTE: 0,
     };
-    for (const order of searched) counts[order.status] += 1;
+    for (const order of searched) {
+      counts[order.status] += 1;
+      if (order.awaitingSubstitution) counts.AWAITING_SUBSTITUTE += 1;
+    }
     return counts;
   }, [searched]);
 
-  const filtered = useMemo(
-    () => (status === "ALL" ? searched : searched.filter((o) => o.status === status)),
-    [searched, status],
-  );
+  const filtered = useMemo(() => {
+    if (status === "ALL") return searched;
+    // AWAITING_SUBSTITUTE isn't an order status (the order itself stays
+    // PICKING) — it filters on the derived flag instead.
+    if (status === "AWAITING_SUBSTITUTE") return searched.filter((o) => o.awaitingSubstitution);
+    return searched.filter((o) => o.status === status);
+  }, [searched, status]);
 
   return (
     <div>
@@ -85,12 +93,15 @@ export default function OpsApp() {
               key={option.value}
               type="button"
               onClick={() => setStatus(option.value)}
-              className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
                 status === option.value
                   ? "bg-crate text-white shadow-sm"
                   : "bg-ink/5 text-ink/70 hover:text-ink"
               }`}
             >
+              {option.value === "AWAITING_SUBSTITUTE" && (
+                <span aria-hidden="true" className="h-2 w-2 rounded-full bg-safety" />
+              )}
               {option.label} <span className="tabular-nums">{countByStatus[option.value]}</span>
             </button>
           ))}

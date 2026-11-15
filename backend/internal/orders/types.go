@@ -57,15 +57,18 @@ type Order struct {
 
 // OrderSummary is the lightweight shape listed for the ops table — no item
 // array, so fetching all orders at once (query key ['orders'], staleTime
-// Infinity) stays cheap even at 10,000+ rows.
+// Infinity) stays cheap even at 10,000+ rows. AwaitingSubstitution is a
+// derived flag, not a stored column — see ListSummaries — so the ops table
+// can highlight a row without the summary needing the full items array.
 type OrderSummary struct {
-	ID         string    `json:"id"`
-	Status     string    `json:"status"`
-	Version    int       `json:"version"`
-	TotalPaise int       `json:"totalPaise"`
-	ItemCount  int       `json:"itemCount"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID                   string    `json:"id"`
+	Status               string    `json:"status"`
+	Version              int       `json:"version"`
+	TotalPaise           int       `json:"totalPaise"`
+	ItemCount            int       `json:"itemCount"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+	AwaitingSubstitution bool      `json:"awaitingSubstitution"`
 }
 
 // StockShortfall describes one item that couldn't be fully reserved.

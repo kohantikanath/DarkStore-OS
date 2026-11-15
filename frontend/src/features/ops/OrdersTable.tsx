@@ -69,8 +69,8 @@ const OrderRow = memo(function OrderRow({
     <div
       style={style}
       className={`grid grid-cols-6 items-center gap-2 border-b border-ink/5 px-4 text-sm text-ink/80 ${
-        isPulsing ? "pulse-live" : ""
-      }`}
+        order.awaitingSubstitution ? "border-l-4 border-l-safety pl-3" : ""
+      } ${isPulsing ? "pulse-live" : ""}`}
     >
       <span className="truncate font-display tabular-nums text-ink/70">
         #{order.id.slice(0, 8)}

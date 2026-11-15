@@ -2,7 +2,10 @@ import { create } from "zustand";
 
 import type { OrderStatus } from "../types/order";
 
-export type StatusFilter = "ALL" | OrderStatus;
+// "AWAITING_SUBSTITUTE" isn't an OrderStatus (the order itself stays
+// PICKING while one of its items is) — it's a separate filter mode that
+// matches on the summary's derived awaitingSubstitution flag instead.
+export type StatusFilter = "ALL" | OrderStatus | "AWAITING_SUBSTITUTE";
 
 interface OpsFiltersState {
   status: StatusFilter;

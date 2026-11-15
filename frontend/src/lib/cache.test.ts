@@ -16,6 +16,28 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
   };
 }
 
+describe("orderToSummary", () => {
+  it("is false when no item is awaiting a substitution decision", () => {
+    const order = makeOrder({
+      items: [
+        { id: "item-1", productId: "p1", qty: 1, status: "PENDING" },
+        { id: "item-2", productId: "p2", qty: 1, status: "PICKED" },
+      ],
+    });
+    expect(orderToSummary(order).awaitingSubstitution).toBe(false);
+  });
+
+  it("is true when any item is AWAITING_SUBSTITUTE", () => {
+    const order = makeOrder({
+      items: [
+        { id: "item-1", productId: "p1", qty: 1, status: "PICKED" },
+        { id: "item-2", productId: "p2", qty: 1, status: "AWAITING_SUBSTITUTE" },
+      ],
+    });
+    expect(orderToSummary(order).awaitingSubstitution).toBe(true);
+  });
+});
+
 describe("mergeOrder", () => {
   it("accepts an incoming order when there's nothing cached yet", () => {
     const incoming = makeOrder({ version: 1 });

@@ -5,6 +5,7 @@
 // in places — see the README for what's deliberately not reproduced
 // (concurrent-request races don't really apply to a single JS thread, for
 // instance).
+import { orderToSummary } from "../lib/cache";
 import { broadcastMockEvent } from "../lib/realtime";
 import type {
   Order,
@@ -150,15 +151,7 @@ export function getOrder(id: string): Order | undefined {
 
 export function listOrderSummaries(): OrderSummary[] {
   return Array.from(orders.values())
-    .map((o) => ({
-      id: o.id,
-      status: o.status,
-      version: o.version,
-      totalPaise: o.totalPaise,
-      itemCount: o.items.length,
-      createdAt: o.createdAt,
-      updatedAt: o.updatedAt,
-    }))
+    .map(orderToSummary)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

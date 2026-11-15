@@ -373,6 +373,17 @@ Key decisions below for the one behavioral difference that comes with that.
   money-affecting decision just appeared on screen at all — this is exactly
   the kind of modal (unprompted, time-limited, financially consequential)
   where that gap matters most.
+- **`OrderSummary` carries a derived `awaitingSubstitution` boolean, not the
+  order's full items array.** The ops table needs to highlight a row with
+  an item awaiting a decision, but pulling the whole `items` array into
+  every one of 10,000+ summary rows just to answer one yes/no question
+  would bloat `GET /api/orders` for no reason — the flag is computed once
+  in `ListSummaries`' SQL (`bool_or` over the same `order_items` join the
+  query already does for `item_count`, not a second correlated subquery —
+  confirmed via `EXPLAIN ANALYZE` at the full 10,000-row scale: ~12ms,
+  identical shape of plan to before the column was added) and mirrored
+  on the frontend by `orderToSummary` (`lib/cache.ts`) for orders arriving
+  live over the WebSocket, so both paths agree on what the flag means.
 
 ## Known limitations / out of scope
 
