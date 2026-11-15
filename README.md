@@ -1,8 +1,9 @@
 # DarkStore OS
 
-> Status: Phase 4 — deployed to production (Render + Neon + a deploy-check
-> page) and verified end-to-end. No substitution flow yet (Phase 8), no real
-> frontend yet (Phase 5+).
+> Status: Phase 5 — frontend foundation (routing, role switcher, adapters,
+> Zod schemas) is wired up and talking to the real backend. No real
+> shop/ops/picker screens yet (Phases 6–8), no substitution flow yet
+> (Phase 8).
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -96,6 +97,34 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   library API (`internal/migrate`) before the server starts listening works
   on every plan and makes local `go run ./cmd/server` behave identically to
   the deployed one.
+- **The 30-second request timeout middleware only wraps the REST routes,
+  not `/ws`.** Found this one the hard way: applying it globally meant Go
+  tried to write a `504` to a WebSocket connection gorilla/websocket had
+  already hijacked once it outlived 30 seconds, logging a harmless-looking
+  but real `response.WriteHeader on hijacked connection` warning for every
+  long-lived WS session. A chi route group now scopes the timeout to the
+  `/api/*` handlers only.
+- **TypeScript is pinned to 5.9.3, not the new 7.x compiler.** TypeScript 7
+  (the Go-based rewrite) is current-stable by version number, but
+  `typescript-eslint` doesn't support it yet (caps at `<6.1.0`) — using it
+  would mean no type-aware linting. 5.9.3 is the newest version the rest of
+  the toolchain actually works with.
+- **`lib/cache.ts` is split out from `lib/realtime.ts`.** The WebSocket
+  connection itself (reconnect/backoff, channel subscriptions) lives in
+  `realtime.ts`; the version-check/merge logic that decides what a cache
+  patch should look like is pulled into its own pure functions in
+  `cache.ts`, specifically so it can be unit tested with plain objects —
+  no mock WebSocket or real QueryClient needed.
+- **`GET /api/products` does its own ETag/304 dance in `lib/api.ts`**, not
+  left to the browser's HTTP cache. Explicitly setting `If-None-Match` and
+  `cache: "no-cache"` forces a real revalidation round-trip (and lets the
+  304 actually surface to JS) instead of the browser silently serving a
+  cached 200 that might hide whether the server-side ETag logic is even
+  working.
+- **Role switcher persists to `localStorage` via Zustand's `persist`
+  middleware** rather than, say, a URL param or session cookie — a picker
+  mid-shift who refreshes the page shouldn't be bounced back to the role
+  picker.
 
 ## Known limitations / out of scope
 
@@ -176,8 +205,29 @@ below with Python's `websocket-client`):
 # then send: {"type":"subscribe","channel":"ops"}
 ```
 
-`short`/`substitute` (the Live Substitution flow) and the frontend are still
-ahead — Phase 8 and Phase 5+ respectively.
+`short`/`substitute` (the Live Substitution flow) is still ahead — Phase 8.
+
+### Frontend (Phase 5)
+
+```bash
+cd frontend
+cp .env.example .env   # points at the local backend above by default
+npm install
+npm run dev             # http://localhost:5173
+```
+
+Pick a role (customer/picker/manager) — it's a fake login, persisted to
+`localStorage`, with route guards that bounce you back to the role picker
+if you try a URL for a role you're not in. Each role's screen is a
+placeholder until its phase (6, 7, 8) builds the real thing; this phase is
+about proving the routing, the adapters (`lib/api.ts`, `lib/realtime.ts`),
+and the Zod-validated types all actually talk to the backend above.
+
+```bash
+npm run lint    # ESLint
+npm run test    # Vitest — currently covers lib/cache.ts's merge/version logic
+npm run build   # tsc -b && vite build
+```
 
 ## Live links
 

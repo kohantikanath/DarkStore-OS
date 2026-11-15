@@ -65,17 +65,27 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(httpx.CORS(allowedOrigin))
 
-	r.Get("/api/health", healthHandler(pool))
-	r.Get("/api/products", productsHandler.List)
-	r.Post("/api/orders", ordersHandler.Create)
-	r.Get("/api/orders", ordersHandler.List)
-	r.Get("/api/orders/{id}", ordersHandler.Get)
-	r.Post("/api/orders/{id}/start-picking", ordersHandler.StartPicking)
-	r.Post("/api/orders/{id}/pack", ordersHandler.Pack)
-	r.Post("/api/orders/{id}/dispatch", ordersHandler.Dispatch)
+	// A 30s request timeout makes sense for ordinary REST calls, but a
+	// WebSocket connection is meant to stay open far longer than that — so
+	// this group (and the timeout) wraps only the REST routes, not /ws.
+	// Applying it globally would make the middleware try to write a 504 to
+	// a connection gorilla/websocket has already hijacked, which Go's net/http
+	// logs as a harmless-looking but real "response.WriteHeader on hijacked
+	// connection" warning for every WS session that outlives the timeout.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(30 * time.Second))
+
+		r.Get("/api/health", healthHandler(pool))
+		r.Get("/api/products", productsHandler.List)
+		r.Post("/api/orders", ordersHandler.Create)
+		r.Get("/api/orders", ordersHandler.List)
+		r.Get("/api/orders/{id}", ordersHandler.Get)
+		r.Post("/api/orders/{id}/start-picking", ordersHandler.StartPicking)
+		r.Post("/api/orders/{id}/pack", ordersHandler.Pack)
+		r.Post("/api/orders/{id}/dispatch", ordersHandler.Dispatch)
+	})
 
 	// Not under /api: it's a WebSocket upgrade, not a REST resource.
 	r.Get("/ws", hub.Handler)
