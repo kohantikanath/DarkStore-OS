@@ -14,6 +14,7 @@ import (
 
 	"github.com/kohantikanath/darkstore-os/backend/internal/db"
 	"github.com/kohantikanath/darkstore-os/backend/internal/httpx"
+	"github.com/kohantikanath/darkstore-os/backend/internal/migrate"
 	"github.com/kohantikanath/darkstore-os/backend/internal/orders"
 	"github.com/kohantikanath/darkstore-os/backend/internal/products"
 	"github.com/kohantikanath/darkstore-os/backend/internal/ws"
@@ -27,6 +28,12 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
+	log.Println("server: running database migrations")
+	if err := migrate.Up(connString); err != nil {
+		log.Fatalf("server: migration failed: %v", err)
+	}
+	log.Println("server: migrations up to date")
 
 	ctx := context.Background()
 
