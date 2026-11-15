@@ -40,7 +40,7 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
 | Validation| Zod                                                                      |
 | Mock mode | MSW + BroadcastChannel                                                   |
 | Tests     | Go `testing`, Vitest                                                     |
-| Hosting   | Vercel (frontend), Render (backend), Neon (database) — free tiers        |
+| Hosting   | Netlify (frontend), Render (backend), Neon (database) — free tiers       |
 
 ## Key decisions and trade-offs
 
@@ -184,18 +184,16 @@ ahead — Phase 8 and Phase 5+ respectively.
 - Backend: https://darkstore-os-backend.onrender.com ([render.yaml](render.yaml))
 - Database: Neon (Postgres), Singapore region
 - Deploy-check page: https://darkstore-os-hello.netlify.app — the throwaway
-  `hello/` page from Phase 4 (see below), not the real frontend
-- Real frontend: _TBD (Phase 5+, on Vercel per the original plan — see note
-  below)_
+  `hello/` page from Phase 4 (see below), replaced by the real frontend in
+  Phase 5+ (same Netlify project/host)
+- Real frontend: _TBD (Phase 5+)_
 
-> **Why Netlify instead of Vercel for the Phase 4 check**: the plan was
-> Vercel throughout, but the Vercel account hit a 2FA account-recovery flow
-> mid-Phase-4 that only Vercel support can resolve, with no ETA. Netlify is a
-> like-for-like substitute (same free tier, same build-command/env-var
-> model) used here only to prove the Render/Neon backend and its CORS/`wss://`
-> wiring work end-to-end in production without that being blocked. The real
-> frontend in Phase 5+ still goes to Vercel once account access is back,
-> matching the original stack choice.
+> **Why Netlify, not Vercel**: the original plan was Vercel throughout, but
+> the Vercel account hit a 2FA account-recovery flow mid-Phase-4 that only
+> Vercel support can resolve, with no ETA. Netlify is a like-for-like
+> replacement (same free tier, same build-command/env-var model), and the
+> project has settled on it for the rest of the build rather than waiting
+> on account recovery.
 
 ## Project docs
 

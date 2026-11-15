@@ -21,7 +21,7 @@ this file is just the quick-reference summary.
 - **Frontend**: React + TypeScript (strict), Vite, React Router, Tailwind CSS,
   TanStack Query, Zustand, TanStack Virtual, Zod, MSW + BroadcastChannel (mock mode).
 - **Tests**: Go `testing` package; Vitest.
-- **Hosting**: Vercel (frontend), Render (backend), Neon (Postgres) — all free tier.
+- **Hosting**: Netlify (frontend), Render (backend), Neon (Postgres) — all free tier.
 
 ## Frontend rules (non-negotiable)
 1. Components never call `fetch` or open WebSockets directly — only `lib/api.ts` and

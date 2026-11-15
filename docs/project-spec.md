@@ -60,7 +60,7 @@ Frontend:
 
 Use current stable versions of all libraries.
 
-Hosting (all free): frontend on Vercel, Go backend on Render (free web service),
+Hosting (all free): frontend on Netlify, Go backend on Render (free web service),
 database on Neon (free plan).
 
 ## Repo structure (feature-based)
@@ -211,7 +211,7 @@ All errors use one JSON shape: `{ "error": "CODE", "message": "...", "details": 
   idempotency, error format, CORS) + `/api/health`.
 - **Phase 3**: WebSocket hub, order state machine with tests, version increments.
 - **Phase 4** (early deploy check): deploy backend to Render + Neon and a "hello" frontend
-  to Vercel that calls `/api/health` and opens the WebSocket. Fix CORS / env / wss now.
+  to Netlify that calls `/api/health` and opens the WebSocket. Fix CORS / env / wss now.
 - **Phase 5**: Frontend foundation: Vite + TS strict + Tailwind + TanStack Query + Zustand +
   router + role switcher + adapters + Zod schemas.
 - **Phase 6**: `/shop` (catalog, cart, checkout with idempotency and 409 handling, order
