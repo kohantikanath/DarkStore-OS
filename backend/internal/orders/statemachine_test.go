@@ -1,6 +1,9 @@
 package orders
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // Every pair is listed explicitly (not derived from orderTransitions) so
 // this test actually checks the state machine against the spec, rather than
@@ -71,6 +74,35 @@ func TestCanMarkItemShort(t *testing.T) {
 		got := CanMarkItemShort(tt.orderStatus, tt.itemStatus)
 		if got != tt.want {
 			t.Errorf("CanMarkItemShort(%s, %s) = %v, want %v", tt.orderStatus, tt.itemStatus, got, tt.want)
+		}
+	}
+}
+
+func TestIsDueForExpiry(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-1 * time.Second)
+	future := now.Add(1 * time.Second)
+
+	tests := []struct {
+		name      string
+		status    ItemStatus
+		expiresAt *time.Time
+		want      bool
+	}{
+		{"awaiting substitute, deadline passed", ItemAwaitingSubstitute, &past, true},
+		{"awaiting substitute, deadline not yet reached", ItemAwaitingSubstitute, &future, false},
+		{"awaiting substitute, no deadline set", ItemAwaitingSubstitute, nil, false},
+		// The customer chose (or it was already refunded) before the ticker
+		// got to it — a past deadline on a resolved item is not "still due".
+		{"already substituted, deadline passed", ItemSubstituted, &past, false},
+		{"already refunded, deadline passed", ItemRefunded, &past, false},
+		{"still pending, no deadline", ItemPending, nil, false},
+	}
+
+	for _, tt := range tests {
+		got := IsDueForExpiry(tt.status, tt.expiresAt, now)
+		if got != tt.want {
+			t.Errorf("%s: IsDueForExpiry(%s, %v, now) = %v, want %v", tt.name, tt.status, tt.expiresAt, got, tt.want)
 		}
 	}
 }

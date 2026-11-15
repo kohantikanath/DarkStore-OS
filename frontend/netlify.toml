@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# VITE_API_URL and VITE_WS_URL are set as site environment variables
+# (production context) rather than here, so the deployed origin is never
+# hardcoded into version control. VITE_USE_MOCK is intentionally left unset
+# in production — see Phase 9: the mock code path only exists when that
+# flag is explicitly set to "true" at build time.
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

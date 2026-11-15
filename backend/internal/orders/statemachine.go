@@ -1,6 +1,9 @@
 package orders
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type OrderStatus string
 
@@ -63,6 +66,16 @@ func CanTransitionItem(from, to ItemStatus) bool {
 // one that's already packed.
 func CanMarkItemShort(orderStatus OrderStatus, itemStatus ItemStatus) bool {
 	return orderStatus == StatusPicking && CanTransitionItem(itemStatus, ItemAwaitingSubstitute)
+}
+
+// IsDueForExpiry reports whether an AWAITING_SUBSTITUTE item's deadline has
+// passed, given the status and expiresAt it had at read time. The expiry
+// ticker (Service.ExpireDueSubstitutions) re-checks this inside a
+// row-locked transaction before actually refunding, since the customer may
+// have chosen in the gap between reading this and acting on it — a nil
+// expiresAt (any other status never has one set) is never due.
+func IsDueForExpiry(status ItemStatus, expiresAt *time.Time, now time.Time) bool {
+	return status == ItemAwaitingSubstitute && expiresAt != nil && now.After(*expiresAt)
 }
 
 // TransitionError is returned when a requested transition isn't allowed from

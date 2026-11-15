@@ -20,6 +20,7 @@ export default function OpsApp() {
   const setSearch = useOpsFiltersStore((s) => s.setSearch);
 
   const [simulating, setSimulating] = useState(false);
+  const [simulateError, setSimulateError] = useState<string | null>(null);
 
   useEffect(() => {
     subscribe("ops");
@@ -31,6 +32,8 @@ export default function OpsApp() {
     const id = setInterval(() => {
       simulateOrder().catch((err: unknown) => {
         console.error("simulate: failed to create a demo order", err);
+        setSimulateError("Couldn't create a demo order — stopped simulating.");
+        setSimulating(false);
       });
     }, SIMULATE_INTERVAL_MS);
 
@@ -83,7 +86,10 @@ export default function OpsApp() {
 
           <button
             type="button"
-            onClick={() => setSimulating((s) => !s)}
+            onClick={() => {
+              setSimulateError(null);
+              setSimulating((s) => !s);
+            }}
             className={`ml-auto rounded-md px-4 py-1.5 text-sm font-medium text-white ${
               simulating ? "bg-red-600 hover:bg-red-700" : "bg-slate-800 hover:bg-slate-700"
             }`}
@@ -92,7 +98,15 @@ export default function OpsApp() {
           </button>
         </div>
 
-        {orders.isPending && <p className="text-slate-500">Loading orders…</p>}
+        {simulateError && <p className="mb-4 text-sm text-red-600">{simulateError}</p>}
+
+        {orders.isPending && (
+          <div className="space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-10 animate-pulse rounded-md bg-slate-100" />
+            ))}
+          </div>
+        )}
 
         {orders.isError && (
           <div className="flex flex-col items-start gap-3">
@@ -108,7 +122,11 @@ export default function OpsApp() {
         )}
 
         {orders.isSuccess && filtered.length === 0 && (
-          <p className="text-slate-500">No orders match these filters.</p>
+          <p className="text-slate-500">
+            {orders.data.length === 0
+              ? "No orders yet — place one from the shop, or hit Simulate above."
+              : "No orders match these filters."}
+          </p>
         )}
 
         {orders.isSuccess && filtered.length > 0 && <OrdersTable orders={filtered} />}

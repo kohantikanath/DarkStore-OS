@@ -1,11 +1,12 @@
 # DarkStore OS
 
-> Status: Phase 9 — **mock mode.** The whole app now also runs with zero
-> backend: `VITE_USE_MOCK=true` swaps MSW + BroadcastChannel in for the real
-> fetch/WebSocket transport, with no component changes anywhere — the same
-> Live Substitution flow (short → live countdown popup → choice or
-> auto-refund → reflected across views) works identically, demoable from a
-> static-hosted frontend alone.
+> Status: Phase 10 — **done.** All ten phases are built, tested, and
+> deployed: [the real frontend](https://darkstore-os.netlify.app) talks to
+> [the real backend](https://darkstore-os-backend.onrender.com) and Neon
+> Postgres, Live Substitution works end-to-end across customer/picker/manager
+> views, and the same app also runs with zero backend at all via mock mode
+> (Phase 9). See "Live links" below to try it, and "Running locally" to run
+> it yourself either way.
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -30,7 +31,47 @@ complaints, and bad ratings.
 
 ## Architecture
 
-_Diagram and walkthrough added once the backend and frontend are built (Phases 2–8)._
+```mermaid
+flowchart LR
+    subgraph Browser["Browser — 3 roles, 1 SPA"]
+        Customer["Customer\n/shop"]
+        Picker["Picker\n/picker"]
+        Manager["Store Manager\n/ops"]
+    end
+
+    Adapters["lib/api.ts (REST)\nlib/realtime.ts (live events)"]
+    Customer --> Adapters
+    Picker --> Adapters
+    Manager --> Adapters
+
+    Adapters -- "HTTPS" --> API["Go API (chi)\nRender"]
+    Adapters <-- "WSS, patches\nTanStack Query cache" --> WS["WebSocket hub\n(same Go process)"]
+
+    API --> PG[("Postgres\nNeon")]
+    WS --> PG
+    Ticker["2s expiry ticker\n(goroutine)"] -- "refund overdue\nAWAITING_SUBSTITUTE items" --> PG
+    Ticker --> WS
+
+    API -- "every committed\nchange" --> WS
+
+    style Browser fill:#eef2ff,stroke:#6366f1
+```
+
+Three React Router–lazy-loaded views share one TanStack Query cache and one
+live-events connection. REST calls and WebSocket messages each go through
+exactly one file (`lib/api.ts`, `lib/realtime.ts` — see rule 1 below), so no
+component ever touches `fetch` or `WebSocket` directly. Every state-changing
+API call commits to Postgres first, then broadcasts the fresh order over the
+WebSocket hub to every subscribed tab — including the one that made the
+change, so a picker marking an item short sees the same update their own
+customer-role tab would. The 2-second ticker is a background goroutine in
+the same process, not a separate service: it exists only to catch
+substitution deadlines nobody's request happens to cross.
+
+In **mock mode** (`VITE_USE_MOCK=true`, Phase 9), `API`/`WS`/`Postgres` are
+replaced client-side by MSW + an in-memory store + `BroadcastChannel` — same
+diagram shape, same adapter boundary, zero servers. See "Mock mode" under
+Key decisions below for the one behavioral difference that comes with that.
 
 ## Tech stack
 
@@ -242,6 +283,36 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   status/version for the order that tab itself had just changed, even
   though the real backend-equivalent data was correct all along. Patching
   locally — the same `applyEvent` a receiving tab runs — fixes both.
+- **The ops table's loading/empty states, and the Simulate button's
+  failures, needed a second look in Phase 10.** An audit against rule 9
+  ("every data screen: loading skeleton, error retry, empty state") found
+  three real gaps: the ops page's loading state was plain text, not a
+  skeleton like every other data screen; "no orders" and "no orders *match
+  your filter*" showed the identical message, which is misleading the first
+  time anyone opens `/ops` before placing any demo orders; and a failed
+  `simulateOrder()` call was only ever `console.error`'d, silently leaving
+  the "Stop simulating" button showing while nothing was actually happening
+  anymore. Fixed by adding a real skeleton, splitting the empty-state
+  message on whether `orders.data` itself is empty vs. just the filtered
+  view, and surfacing the failure as a message plus turning simulating off.
+- **The real frontend was deployed to the same Netlify site as the Phase 4
+  throwaway `hello/` check, renamed rather than left as two sites.** Netlify
+  lets a site's subdomain be changed independently of its project — so
+  `darkstore-os-hello` became `darkstore-os`, with `frontend/netlify.toml`
+  (not `hello/netlify.toml`) now driving its build, and `ALLOWED_ORIGIN` on
+  the Render backend updated to match. One free-tier project to manage
+  instead of an orphaned "hello" site sitting next to the real one forever.
+
+- **`IsDueForExpiry` is a small pure function in `statemachine.go`, pulled
+  out of `refundExpiredItem` in Phase 10** — same reasoning as
+  `lib/cache.ts` on the frontend: the one piece of this project's spec that
+  explicitly calls for a unit test ("Go unit tests for the state machine and
+  substitution expiry") needs something pure to test against. `Service`
+  itself is wired directly to a real `*pgxpool.Pool`, with no repository
+  interface to fake, so testing the *decision* — is this item's deadline
+  actually passed, given its last-known status — separately from the
+  transaction/locking code that re-checks it is simpler than introducing a
+  mock database layer just for this one function.
 
 ## Known limitations / out of scope
 
@@ -288,6 +359,12 @@ export $(cat .env | xargs)
 go run ./cmd/server    # listens on :8080 by default
 ```
 
+```bash
+gofmt -l .    # should print nothing
+go vet ./...
+go test ./... # state machine + substitution-expiry logic (internal/orders)
+```
+
 Try it:
 
 ```bash
@@ -322,9 +399,12 @@ below with Python's `websocket-client`):
 # then send: {"type":"subscribe","channel":"ops"}
 ```
 
-`short`/`substitute` (the Live Substitution flow) is still ahead — Phase 8.
+`short`/`substitute` (the Live Substitution flow) also exist —
+`POST /api/orders/<id>/items/<itemId>/short` and `.../substitute` — easiest
+to exercise from the frontend below, since picking good candidate products
+by hand needs the seeded catalog's category/price data in front of you.
 
-### Frontend (Phase 5 foundation, Phase 6 /shop, Phase 7 /ops, Phase 8 /picker + substitution)
+### Frontend
 
 ```bash
 cd frontend
@@ -417,21 +497,26 @@ npm run build                       # normal build — no mock code in the bundl
 
 ## Live links
 
-- Backend: https://darkstore-os-backend.onrender.com ([render.yaml](render.yaml))
-- Database: Neon (Postgres), Singapore region
-- Deploy-check page: https://darkstore-os-hello.netlify.app — the throwaway
-  `hello/` page from Phase 4 (see below), replaced by the real frontend in
-  Phase 5+ (same Netlify project/host)
-- Real frontend: _TBD (Phase 5+)_
+- **Frontend**: https://darkstore-os.netlify.app — the real app
+  ([frontend/netlify.toml](frontend/netlify.toml))
+- **Backend**: https://darkstore-os-backend.onrender.com ([render.yaml](render.yaml))
+- **Database**: Neon (Postgres), Singapore region
+
+> First load can take up to a minute — Render's free tier spins the backend
+> down when idle, and the app shows a "Waking up the server…" state while it
+> comes back (rule 14).
 
 > **Why Netlify, not Vercel**: the original plan was Vercel throughout, but
 > the Vercel account hit a 2FA account-recovery flow mid-Phase-4 that only
 > Vercel support can resolve, with no ETA. Netlify is a like-for-like
-> replacement (same free tier, same build-command/env-var model), and the
-> project has settled on it for the rest of the build rather than waiting
-> on account recovery.
+> replacement (same free tier, same build-command/env-var model). The
+> `hello/` deploy-check page from Phase 4 and the real frontend above are the
+> same Netlify project — it was renamed (`darkstore-os-hello` →
+> `darkstore-os`) and redeployed with the real app once Phase 5+ built it,
+> rather than standing up a second site.
 
 ## Project docs
 
 - [Full project spec](docs/project-spec.md)
 - [CLAUDE.md](CLAUDE.md) — quick-reference for stack and frontend/backend rules
+- [Demo video script](docs/demo-script.md) — shot-by-shot script for a ~3-minute walkthrough

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 
 import { RequireRole } from "./components/RequireRole";
 import { RoleSwitcher } from "./pages/RoleSwitcher";
@@ -12,6 +12,17 @@ const OpsApp = lazy(() => import("./features/ops"));
 
 function RouteFallback() {
   return <div className="p-8 text-slate-500">Loading…</div>;
+}
+
+function NotFound() {
+  return (
+    <div className="flex flex-col items-start gap-3 p-8">
+      <p className="text-slate-600">There's nothing at this URL.</p>
+      <Link to="/" className="text-sm text-slate-500 underline">
+        Back to start
+      </Link>
+    </div>
+  );
 }
 
 export function App() {
@@ -44,6 +55,7 @@ export function App() {
               </RequireRole>
             }
           />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

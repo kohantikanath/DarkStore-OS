@@ -419,10 +419,7 @@ func (s *Service) refundExpiredItem(ctx context.Context, itemID string) error {
 	}
 	// Re-check under the lock: the customer may have chosen in the gap
 	// between FindExpiredAwaitingSubstitution's read and this transaction.
-	if ItemStatus(item.ItemStatus) != ItemAwaitingSubstitute {
-		return nil
-	}
-	if item.ExpiresAt == nil || !time.Now().After(*item.ExpiresAt) {
+	if !IsDueForExpiry(ItemStatus(item.ItemStatus), item.ExpiresAt, time.Now()) {
 		return nil
 	}
 
