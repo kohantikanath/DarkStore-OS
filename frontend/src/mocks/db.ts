@@ -216,28 +216,18 @@ function findItem(orderId: string, itemId: string): { order: Order; item: OrderI
   return { order, item };
 }
 
-// Candidates within ±30% of product's price, in the given tier (its own
-// subcategory, or its whole category), that currently have enough available
-// stock — checked against the stock Map directly (not via reserve(), which
-// would mutate state) so the tier-fallback decision in markItemShort is
-// based on "is there anything to offer", the same thing the backend's own
-// SQL WHERE s.available >= minAvailable checks before deciding whether to
-// fall back to the category-wide query.
-function findSubstituteMatches(
-  product: Product,
-  shortQty: number,
-  tier: "subcategory" | "category",
-): Product[] {
+// Candidates within ±30% of product's price, in the same subcategory, that
+// currently have enough available stock — checked against the stock Map
+// directly (not via reserve(), which would mutate state). Never falls back
+// to the wider category: a wrong substitute (curd for butter, onion for
+// potato) is worse than a refund.
+function findSubstituteMatches(product: Product, shortQty: number): Product[] {
   const low = product.pricePaise * 0.7;
   const high = product.pricePaise * 1.3;
 
   return catalog
     .filter((p) => p.id !== product.id)
-    .filter((p) =>
-      tier === "subcategory"
-        ? p.subcategory === product.subcategory
-        : p.category === product.category,
-    )
+    .filter((p) => p.subcategory === product.subcategory)
     .filter((p) => p.pricePaise >= low && p.pricePaise <= high)
     .filter((p) => (stock.get(p.id)?.available ?? 0) >= shortQty)
     .sort(
@@ -280,14 +270,9 @@ export function markItemShort(
 
   writeOff(item.productId, shortQty);
 
-  // Mirrors the backend's two-tier SubstituteCandidates: a same-subcategory
-  // match first (another curd for curd, not butter just because both are
-  // Dairy), falling back to the whole category only if the subcategory
-  // alone has nothing else in stock and in the price band.
-  let matched = findSubstituteMatches(product, shortQty, "subcategory");
-  if (matched.length === 0) {
-    matched = findSubstituteMatches(product, shortQty, "category");
-  }
+  // Mirrors the backend's SubstituteCandidates: same-subcategory match
+  // only, never the wider category.
+  const matched = findSubstituteMatches(product, shortQty);
 
   const candidates: SubstituteCandidate[] = matched
     .filter((p) => reserve(p.id, shortQty).ok)

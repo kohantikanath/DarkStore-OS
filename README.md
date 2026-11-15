@@ -398,16 +398,17 @@ Key decisions below for the one behavioral difference that comes with that.
   the now-blocked `Pack`) — added anyway as the same defense-in-depth this
   package applies to every other transition, not something to rely on
   staying unreachable as the code changes.
-- **Substitute matching prefers the same subcategory first** (`products`
-  has a `subcategory` column alongside `category` — e.g. "Milk" and
-  "Curd" within "Dairy"), **falling back to the whole category only if the
-  subcategory alone has nothing in stock and in the price band.** Two
-  products sharing a broad category are often poor substitutes for each
-  other (butter for milk); subcategory narrows that down to something a
-  customer would actually accept, while the fallback still means a
-  genuinely singleton subcategory (there's only one Paneer SKU in the seed
-  catalog) doesn't dead-end into "no replacement offered" when a same-category
-  item would have done fine.
+- **Substitute matching only offers the same subcategory, never the
+  wider category — and a wrong substitute is worse than a refund.** An
+  earlier version fell back to category when a subcategory had nothing in
+  stock, which is how Amul Butter ended up offering curd, and onion ended up
+  offering potato: both share a category, neither is something a customer
+  asked for. Subcategories are now true product types (`Onion`, `Potato`,
+  `Butter`, `Paneer`, ... — not coarse buckets like "Root Vegetables"), so a
+  match is always something the customer would actually accept. A
+  subcategory with nothing else in stock (most of the produce aisle, by
+  design) simply offers no candidates, and the item is refunded immediately
+  — the same safe default as an expired offer, not a special case.
 
 ## Known limitations / out of scope
 
@@ -441,7 +442,7 @@ export DATABASE_URL="postgres://darkstore:darkstore@localhost:55432/darkstore?ss
 cd backend
 go run github.com/pressly/goose/v3/cmd/goose@v3.30.1 -dir migrations postgres "$DATABASE_URL" up
 
-# wipe + seed demo data (40 products, ~10,000 historical orders)
+# wipe + seed demo data (43 products, ~10,000 historical orders)
 go run ./cmd/seed
 ```
 

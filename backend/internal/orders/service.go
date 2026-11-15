@@ -25,7 +25,7 @@ type catalog interface {
 	PriceLookup(ctx context.Context, ids []string) (map[string]int, error)
 	RandomProductIDs(ctx context.Context, n int) ([]string, error)
 	GetProduct(ctx context.Context, id string) (*products.Product, error)
-	SubstituteCandidates(ctx context.Context, category, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int) ([]products.SubstituteCandidate, error)
+	SubstituteCandidates(ctx context.Context, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int) ([]products.SubstituteCandidate, error)
 }
 
 // broadcaster is the one thing Service needs from the ws package, narrowed to
@@ -226,7 +226,7 @@ func (s *Service) transition(
 
 // MarkItemShort handles a picker flagging an item as short. It writes off
 // the original product's reservation (that stock was never really there —
-// see Repository.WriteOffReservation), looks for up to two same-category
+// see Repository.WriteOffReservation), looks for up to two same-subcategory
 // replacements within ±30% of the price with enough stock, and reserves
 // shortQty units of each one it finds. If it finds none, the item is
 // refunded immediately — the same outcome as if an offer had been made and
@@ -270,7 +270,7 @@ func (s *Service) MarkItemShort(ctx context.Context, orderID, itemID string, sho
 	}
 
 	found, err := s.catalog.SubstituteCandidates(
-		ctx, product.Category, product.Subcategory, product.ID, shortQty, product.PricePaise, maxSubstituteCandidates,
+		ctx, product.Subcategory, product.ID, shortQty, product.PricePaise, maxSubstituteCandidates,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("orders: mark short: %w", err)

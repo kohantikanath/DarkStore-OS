@@ -130,11 +130,6 @@ type SubstituteCandidate struct {
 	PricePaise int    `json:"pricePaise"`
 }
 
-// substituteCandidatesBySubcategorySQL and substituteCandidatesByCategorySQL
-// are identical but for which column they match on — kept as two explicit
-// queries rather than one with an interpolated column name, so there's never
-// any dynamic SQL construction to reason about, even though matchColumn
-// would only ever be one of these two fixed strings.
 const substituteCandidatesBySubcategorySQL = `
 	SELECT p.id, p.name, p.price_paise
 	FROM products p
@@ -146,43 +141,22 @@ const substituteCandidatesBySubcategorySQL = `
 	ORDER BY ABS(p.price_paise - $6)
 	LIMIT $7`
 
-const substituteCandidatesByCategorySQL = `
-	SELECT p.id, p.name, p.price_paise
-	FROM products p
-	JOIN stock s ON s.product_id = p.id
-	WHERE p.category = $1
-	  AND p.id != $2
-	  AND s.available >= $3
-	  AND p.price_paise BETWEEN $4 AND $5
-	ORDER BY ABS(p.price_paise - $6)
-	LIMIT $7`
-
 // SubstituteCandidates finds up to limit replacement products for a short
 // item, priced within ±30% of targetPricePaise with at least minAvailable
-// units in stock, sorted by closest price match. Prefers a same-subcategory
-// match (another curd for curd, not butter for curd just because both are
-// Dairy) and only broadens to the whole category if the subcategory alone
-// turns up nothing — a narrow subcategory can legitimately have no other
-// members in stock (there's only one Paneer SKU in the seed catalog, say),
-// where falling back to "anything else in Dairy" is still a much better
-// customer experience than offering no replacement at all.
+// units in stock, sorted by closest price match. Matches on subcategory
+// only — never the wider category — because a category-level fallback once
+// offered curd as a "substitute" for butter, and onion for potato: a wrong
+// substitute is worse than a refund. A subcategory with no other member in
+// stock (there's only one Paneer SKU, say) simply returns no candidates,
+// and the caller refunds the item instead of guessing.
 func (r *Repository) SubstituteCandidates(
-	ctx context.Context, category, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int,
+	ctx context.Context, subcategory, excludeProductID string, minAvailable, targetPricePaise, limit int,
 ) ([]SubstituteCandidate, error) {
 	low := int(float64(targetPricePaise) * 0.7)
 	high := int(math.Ceil(float64(targetPricePaise) * 1.3))
 
-	bySubcategory, err := r.queryCandidates(ctx, substituteCandidatesBySubcategorySQL,
+	return r.queryCandidates(ctx, substituteCandidatesBySubcategorySQL,
 		subcategory, excludeProductID, minAvailable, low, high, targetPricePaise, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(bySubcategory) > 0 {
-		return bySubcategory, nil
-	}
-
-	return r.queryCandidates(ctx, substituteCandidatesByCategorySQL,
-		category, excludeProductID, minAvailable, low, high, targetPricePaise, limit)
 }
 
 func (r *Repository) queryCandidates(ctx context.Context, sql string, args ...any) ([]SubstituteCandidate, error) {

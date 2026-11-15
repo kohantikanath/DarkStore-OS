@@ -1,9 +1,9 @@
 // A standalone mock catalog, not literally shared with the backend's seed
-// data — but deliberately shaped the same way (5 categories, subcategories
-// within each, ≥2 similarly-priced items per subcategory in most cases) so
-// the substitution flow has real candidates to find, same as the real
-// backend. Subcategory values match backend/cmd/seed/catalog.go's one for
-// one, so the two don't quietly drift apart.
+// data — but deliberately shaped the same way: subcategories are true
+// product types (an onion is never a "substitute" for a potato), so
+// substitution only ever matches within a subcategory, never falls back to
+// the wider category. Subcategory values match backend/cmd/seed/catalog.go's
+// one for one, so the two don't quietly drift apart.
 import type { Product } from "../types/product";
 
 function id(n: number): string {
@@ -16,8 +16,10 @@ export const catalog: Product[] = [
   { id: id(2), name: "Mother Dairy Toned Milk 500ml", category: "Dairy", subcategory: "Milk", pricePaise: 2600 },
   { id: id(3), name: "Nestle a+ Toned Milk 500ml", category: "Dairy", subcategory: "Milk", pricePaise: 2800 },
   { id: id(4), name: "Amul Butter 100g", category: "Dairy", subcategory: "Butter", pricePaise: 5800 },
+  { id: id(41), name: "Mother Dairy Butter 100g", category: "Dairy", subcategory: "Butter", pricePaise: 5500 },
   { id: id(5), name: "Amul Masti Dahi 400g", category: "Dairy", subcategory: "Curd", pricePaise: 4200 },
   { id: id(6), name: "Amul Paneer 200g", category: "Dairy", subcategory: "Paneer", pricePaise: 9000 },
+  { id: id(42), name: "Mother Dairy Paneer 200g", category: "Dairy", subcategory: "Paneer", pricePaise: 8500 },
   { id: id(7), name: "Mother Dairy Curd 400g", category: "Dairy", subcategory: "Curd", pricePaise: 4500 },
   { id: id(8), name: "Amul Gold Full Cream Milk 500ml", category: "Dairy", subcategory: "Milk", pricePaise: 3300 },
 
@@ -37,43 +39,32 @@ export const catalog: Product[] = [
   { id: id(15), name: "Monginis Pav 6pc", category: "Bakery", subcategory: "Pav", pricePaise: 3000 },
   { id: id(16), name: "Britannia Cake Slice 50g", category: "Bakery", subcategory: "Cake", pricePaise: 2500 },
 
-  // Fruits & Vegetables
-  { id: id(17), name: "Onion 1kg", category: "Fruits & Vegetables", subcategory: "Root Vegetables", pricePaise: 3500 },
-  {
-    id: id(18),
-    name: "Potato 1kg",
-    category: "Fruits & Vegetables",
-    subcategory: "Root Vegetables",
-    pricePaise: 3000,
-  },
-  {
-    id: id(19),
-    name: "Tomato 1kg",
-    category: "Fruits & Vegetables",
-    subcategory: "Salad Vegetables",
-    pricePaise: 4000,
-  },
-  { id: id(20), name: "Banana Robusta 1 Dozen", category: "Fruits & Vegetables", subcategory: "Fruits", pricePaise: 5500 },
-  { id: id(21), name: "Apple Shimla 1kg", category: "Fruits & Vegetables", subcategory: "Fruits", pricePaise: 16000 },
+  // Fruits & Vegetables — each its own subcategory: an onion is not a
+  // substitute for a potato just because both are vegetables.
+  { id: id(17), name: "Onion 1kg", category: "Fruits & Vegetables", subcategory: "Onion", pricePaise: 3500 },
+  { id: id(18), name: "Potato 1kg", category: "Fruits & Vegetables", subcategory: "Potato", pricePaise: 3000 },
+  { id: id(19), name: "Tomato 1kg", category: "Fruits & Vegetables", subcategory: "Tomato", pricePaise: 4000 },
+  { id: id(20), name: "Banana Robusta 1 Dozen", category: "Fruits & Vegetables", subcategory: "Banana", pricePaise: 5500 },
+  { id: id(21), name: "Apple Shimla 1kg", category: "Fruits & Vegetables", subcategory: "Apple", pricePaise: 16000 },
   {
     id: id(22),
     name: "Spinach Bunch 250g",
     category: "Fruits & Vegetables",
-    subcategory: "Leafy Greens",
+    subcategory: "Spinach",
     pricePaise: 2000,
   },
   {
     id: id(23),
     name: "Cucumber 500g",
     category: "Fruits & Vegetables",
-    subcategory: "Salad Vegetables",
+    subcategory: "Cucumber",
     pricePaise: 2500,
   },
   {
     id: id(24),
     name: "Carrot 500g",
     category: "Fruits & Vegetables",
-    subcategory: "Root Vegetables",
+    subcategory: "Carrot",
     pricePaise: 3000,
   },
 
@@ -130,6 +121,7 @@ export const catalog: Product[] = [
     pricePaise: 11500,
   },
   { id: id(38), name: "Bisleri Water 1L", category: "Beverages", subcategory: "Water", pricePaise: 2000 },
+  { id: id(43), name: "Kinley Water 1L", category: "Beverages", subcategory: "Water", pricePaise: 1900 },
   {
     id: id(39),
     name: "Red Bull Energy Drink 250ml",
