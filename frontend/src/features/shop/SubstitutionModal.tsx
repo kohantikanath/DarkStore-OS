@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { formatPaise } from "../../lib/cart";
 import { useChooseSubstitute } from "../../lib/queries";
@@ -32,25 +32,49 @@ export function SubstitutionModal({ orderId, item }: { orderId: string; item: Or
   const offer = item.substituteOptions;
   const remaining = useRemainingSeconds(item.expiresAt ?? new Date().toISOString());
   const chooseSubstitute = useChooseSubstitute();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // One key per offer, not per click — re-clicking (a double click, or a
+  // retry after a transient failure) must reuse the same key so the server
+  // treats it as the same attempt, not a second one. item.id alone would be
+  // enough today (an item only ever gets one offer in its lifetime), but
+  // keying on expiresAt too means a future offer on the same item — if the
+  // state machine ever allowed re-offering — still gets its own key rather
+  // than silently reusing a stale one.
+  // The deps control *when* to generate a new key (a new offer), not what
+  // it's computed from; crypto.randomUUID() never reads item.id/expiresAt,
+  // so the rule sees them as "unused" when they're actually the intended
+  // cache-busting trigger.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const idempotencyKey = useMemo(() => crypto.randomUUID(), [item.id, item.expiresAt]);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
 
   if (!offer) return null;
 
   const expired = remaining <= 0;
 
   function handleChoose(productId: string) {
-    chooseSubstitute.mutate({
-      orderId,
-      itemId: item.id,
-      productId,
-      idempotencyKey: crypto.randomUUID(),
-    });
+    chooseSubstitute.mutate({ orderId, itemId: item.id, productId, idempotencyKey });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold text-slate-800">One item is out of stock</h2>
-        <p className="mt-1 text-sm text-slate-500">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl outline-none"
+      >
+        <h2 id={titleId} className="text-lg font-semibold text-slate-800">
+          One item is out of stock
+        </h2>
+        <p className="mt-1 text-sm text-slate-500" aria-live="polite">
           {expired
             ? "Time's up — we're refunding this item."
             : `Pick a replacement, or we'll refund it in ${remaining}s.`}

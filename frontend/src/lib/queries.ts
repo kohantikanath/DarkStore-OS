@@ -13,6 +13,7 @@ import {
   packOrder,
   startPicking,
 } from "./api";
+import { mergeOrder, rollbackOrder } from "./cache";
 import { queryKeys } from "./queryClient";
 import type { CreateOrderItem, Order } from "../types/order";
 
@@ -62,10 +63,10 @@ export function useCreateOrder() {
 
 // Shared shape for the picker's order-status mutations (rule 6: optimistic
 // updates with rollback for picker actions). Each one optimistically
-// applies its own effect on the cached order immediately, then rolls back
-// to the pre-mutation snapshot on failure. The real, authoritative update
-// arrives moments later over the WebSocket regardless — this just removes
-// the round-trip-shaped delay from what the picker sees when they click.
+// applies its own effect on the cached order immediately, writes the real
+// response into the cache the moment it arrives (not just whatever the
+// WebSocket happens to deliver later), and rolls back to the pre-mutation
+// snapshot on failure — but only if nothing newer has landed meanwhile.
 function useOrderTransition(
   mutationFn: (orderId: string) => Promise<Order>,
   applyOptimistic: (order: Order) => Order,
@@ -82,10 +83,17 @@ function useOrderTransition(
       }
       return { previous, orderId };
     },
+    onSuccess: (order) => {
+      queryClient.setQueryData<Order>(queryKeys.order(order.id), (cached) =>
+        mergeOrder(cached, order),
+      );
+    },
     onError: (_err, _orderId, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKeys.order(context.orderId), context.previous);
-      }
+      const snapshot = context?.previous;
+      if (!snapshot) return;
+      queryClient.setQueryData<Order>(queryKeys.order(context.orderId), (cached) =>
+        rollbackOrder(cached, snapshot),
+      );
     },
   });
 }
@@ -113,8 +121,9 @@ export function useDispatchOrder() {
 
 // Picker action: mark an item short. Optimistically flips it to
 // AWAITING_SUBSTITUTE so the picker sees it move immediately; the real
-// substitute options/expiresAt arrive moments later via the mutation's own
-// response and then the WebSocket broadcast.
+// substitute options/expiresAt (which the client can't guess — the server
+// picks the candidates) arrive via the mutation's own response, merged into
+// the cache in onSuccess rather than waiting on a WebSocket round trip.
 export function useMarkItemShort() {
   const queryClient = useQueryClient();
 
@@ -141,10 +150,17 @@ export function useMarkItemShort() {
       }
       return { previous, orderId };
     },
+    onSuccess: (order) => {
+      queryClient.setQueryData<Order>(queryKeys.order(order.id), (cached) =>
+        mergeOrder(cached, order),
+      );
+    },
     onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKeys.order(context.orderId), context.previous);
-      }
+      const snapshot = context?.previous;
+      if (!snapshot) return;
+      queryClient.setQueryData<Order>(queryKeys.order(context.orderId), (cached) =>
+        rollbackOrder(cached, snapshot),
+      );
     },
   });
 }
@@ -182,10 +198,17 @@ export function useChooseSubstitute() {
       }
       return { previous, orderId };
     },
+    onSuccess: (order) => {
+      queryClient.setQueryData<Order>(queryKeys.order(order.id), (cached) =>
+        mergeOrder(cached, order),
+      );
+    },
     onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKeys.order(context.orderId), context.previous);
-      }
+      const snapshot = context?.previous;
+      if (!snapshot) return;
+      queryClient.setQueryData<Order>(queryKeys.order(context.orderId), (cached) =>
+        rollbackOrder(cached, snapshot),
+      );
     },
   });
 }

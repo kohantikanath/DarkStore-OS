@@ -15,9 +15,8 @@ services:
       # committed here.
       - key: DATABASE_URL
         sync: false
-      # Set to the deployed frontend's exact origin once Phase 4's Vercel
-      # deploy exists; revisited again when the real frontend ships in
-      # Phase 5+.
+      # Set to the deployed frontend's exact origin (https://darkstore-os.netlify.app)
+      # in the Render dashboard — never committed here.
       - key: ALLOWED_ORIGIN
         sync: false
     # PORT is injected automatically by Render; the app already reads it

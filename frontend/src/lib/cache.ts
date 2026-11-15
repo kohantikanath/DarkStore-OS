@@ -26,6 +26,21 @@ export function mergeOrder(cached: Order | undefined, incoming: Order): Order {
   return incoming;
 }
 
+// The rollback-safety rule: an optimistic update's onError handler only
+// restores its pre-mutation snapshot if nothing authoritative has changed
+// the order since the mutation started. Optimistic updates never bump
+// `version` (only a real server response does), so if the currently cached
+// order's version no longer matches the snapshot's, something newer — a
+// WebSocket event, another mutation's response — already landed while this
+// one was in flight, and blindly restoring the older snapshot would
+// silently undo it. No cached order at all (an unusual case — the query
+// would have to have been removed mid-mutation) is treated the same as
+// "nothing newer is known to exist", so the snapshot is restored.
+export function rollbackOrder(cached: Order | undefined, snapshot: Order): Order | undefined {
+  if (cached && cached.version !== snapshot.version) return cached;
+  return snapshot;
+}
+
 // Patches one row of the ops list in place instead of refetching the whole
 // list — the list can be 10,000+ rows, and this event only ever describes
 // one order's change.

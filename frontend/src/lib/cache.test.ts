@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeOrder, mergeOrderIntoSummaries, orderToSummary } from "./cache";
+import { mergeOrder, mergeOrderIntoSummaries, orderToSummary, rollbackOrder } from "./cache";
 import type { Order, OrderSummary } from "../types/order";
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
@@ -38,6 +38,26 @@ describe("mergeOrder", () => {
     const cached = makeOrder({ version: 2 });
     const incoming = makeOrder({ version: 2 });
     expect(mergeOrder(cached, incoming)).toBe(incoming);
+  });
+});
+
+describe("rollbackOrder", () => {
+  it("restores the snapshot when the cached version still matches it", () => {
+    const snapshot = makeOrder({ version: 1, status: "PLACED" });
+    // The optimistic update changed fields but never bumped version.
+    const cached = makeOrder({ version: 1, status: "PICKING" });
+    expect(rollbackOrder(cached, snapshot)).toBe(snapshot);
+  });
+
+  it("skips the rollback when a newer version already landed", () => {
+    const snapshot = makeOrder({ version: 1, status: "PLACED" });
+    const cached = makeOrder({ version: 2, status: "PACKED" });
+    expect(rollbackOrder(cached, snapshot)).toBe(cached);
+  });
+
+  it("restores the snapshot when there's nothing cached at all", () => {
+    const snapshot = makeOrder({ version: 1 });
+    expect(rollbackOrder(undefined, snapshot)).toBe(snapshot);
   });
 });
 

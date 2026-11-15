@@ -1,16 +1,41 @@
 # DarkStore OS
 
-> Status: Phase 10 — **done.** All ten phases are built, tested, and
-> deployed: [the real frontend](https://darkstore-os.netlify.app) talks to
-> [the real backend](https://darkstore-os-backend.onrender.com) and Neon
-> Postgres, Live Substitution works end-to-end across customer/picker/manager
-> views, and the same app also runs with zero backend at all via mock mode
-> (Phase 9). See "Live links" below to try it, and "Running locally" to run
-> it yourself either way.
+**A real-time fulfillment platform for a Zepto-style dark store, with one headline
+feature: when a picker finds an item out of stock mid-order, the customer gets a live
+popup — with a real countdown — to pick a replacement before it's auto-refunded.**
+
+🔗 **[Try it live](https://darkstore-os.netlify.app)** — backend is on Render's free
+tier, so the first load can take up to a minute to wake up.
+
+![Demo GIF — Live Substitution end to end](docs/demo.gif)
+<!-- TODO: record ~15s of the live-substitution flow (mark short → countdown popup →
+     choice → live update on the picker screen) across two tabs and drop it in as
+     docs/demo.gif -->
+
+🎥 **[Watch the full walkthrough](#)** <!-- TODO: add the recorded video link here —
+     see docs/demo-script.md for the shot list -->
+
+**What's technically interesting here:**
+
+- **Live Substitution, live for real** — a picker marking one item short triggers a
+  60-second countdown on the customer's screen and an automatic refund on timeout,
+  synced across three independently role-switched views with no polling, derived
+  entirely from order state (so it survives a page refresh mid-countdown).
+- **Atomic stock reservation with no read-then-write race** — every reservation is one
+  conditional `UPDATE ... WHERE available >= $1`, checked by rows-affected, inside the
+  same transaction as the idempotency record, so a crash or a duplicate request can
+  never double-reserve or silently drop stock.
+- **The whole app also runs with zero backend.** A build-time flag swaps every REST
+  call and WebSocket message for MSW + `BroadcastChannel`, with not one React
+  component aware of the difference — verified by diffing the production bundle with
+  the flag on and off.
+- **A 10,000-row live table that stays smooth**, via windowed virtualization plus
+  targeted, version-gated cache patches instead of a full refetch on every change — a
+  late or out-of-order event can never silently overwrite a newer state.
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
-manager — built around one headline feature: **Live Substitution**.
+manager — built around that one headline feature: **Live Substitution**.
 
 ## The problem
 
@@ -59,7 +84,7 @@ flowchart LR
 
 Three React Router–lazy-loaded views share one TanStack Query cache and one
 live-events connection. REST calls and WebSocket messages each go through
-exactly one file (`lib/api.ts`, `lib/realtime.ts` — see rule 1 below), so no
+exactly one file (`lib/api.ts` for REST, `lib/realtime.ts` for live events), so no
 component ever touches `fetch` or `WebSocket` directly. Every state-changing
 API call commits to Postgres first, then broadcasts the fresh order over the
 WebSocket hub to every subscribed tab — including the one that made the
@@ -68,7 +93,7 @@ customer-role tab would. The 2-second ticker is a background goroutine in
 the same process, not a separate service: it exists only to catch
 substitution deadlines nobody's request happens to cross.
 
-In **mock mode** (`VITE_USE_MOCK=true`, Phase 9), `API`/`WS`/`Postgres` are
+In **mock mode** (`VITE_USE_MOCK=true`), `API`/`WS`/`Postgres` are
 replaced client-side by MSW + an in-memory store + `BroadcastChannel` — same
 diagram shape, same adapter boundary, zero servers. See "Mock mode" under
 Key decisions below for the one behavioral difference that comes with that.
@@ -94,7 +119,7 @@ Key decisions below for the one behavioral difference that comes with that.
   from another's.
 - **`version` bump is application logic, not a DB trigger.** A trigger would
   guarantee the invariant even against a stray manual `UPDATE`, but the Go
-  service layer (Phase 2/3) is the only thing that will ever write to these
+  service layer is the only thing that will ever write to these
   tables, so a trigger would just be indirection with no real benefit here.
 - **Seed data uses `COPY` (bulk load), not one `INSERT` per row.** Seeding
   10,000 orders with individual inserts would mean 10,000+ round trips to
@@ -284,9 +309,10 @@ Key decisions below for the one behavioral difference that comes with that.
   though the real backend-equivalent data was correct all along. Patching
   locally — the same `applyEvent` a receiving tab runs — fixes both.
 - **The ops table's loading/empty states, and the Simulate button's
-  failures, needed a second look in Phase 10.** An audit against rule 9
-  ("every data screen: loading skeleton, error retry, empty state") found
-  three real gaps: the ops page's loading state was plain text, not a
+  failures, needed a second look.** An audit against this project's own
+  data-screen convention ("every data screen: loading skeleton, error
+  retry, empty state") found three real gaps: the ops page's loading state
+  was plain text, not a
   skeleton like every other data screen; "no orders" and "no orders *match
   your filter*" showed the identical message, which is misleading the first
   time anyone opens `/ops` before placing any demo orders; and a failed
@@ -295,8 +321,9 @@ Key decisions below for the one behavioral difference that comes with that.
   anymore. Fixed by adding a real skeleton, splitting the empty-state
   message on whether `orders.data` itself is empty vs. just the filtered
   view, and surfacing the failure as a message plus turning simulating off.
-- **The real frontend was deployed to the same Netlify site as the Phase 4
-  throwaway `hello/` check, renamed rather than left as two sites.** Netlify
+- **The real frontend was deployed to the same Netlify site as the original
+  throwaway `hello/` deploy-check page, renamed rather than left as two
+  sites.** Netlify
   lets a site's subdomain be changed independently of its project — so
   `darkstore-os-hello` became `darkstore-os`, with `frontend/netlify.toml`
   (not `hello/netlify.toml`) now driving its build, and `ALLOWED_ORIGIN` on
@@ -304,7 +331,7 @@ Key decisions below for the one behavioral difference that comes with that.
   instead of an orphaned "hello" site sitting next to the real one forever.
 
 - **`IsDueForExpiry` is a small pure function in `statemachine.go`, pulled
-  out of `refundExpiredItem` in Phase 10** — same reasoning as
+  out of `refundExpiredItem`** — same reasoning as
   `lib/cache.ts` on the frontend: the one piece of this project's spec that
   explicitly calls for a unit test ("Go unit tests for the state machine and
   substitution expiry") needs something pure to test against. `Service`
@@ -313,6 +340,39 @@ Key decisions below for the one behavioral difference that comes with that.
   actually passed, given its last-known status — separately from the
   transaction/locking code that re-checks it is simpler than introducing a
   mock database layer just for this one function.
+- **Every optimistic mutation now writes the server's response straight into
+  the cache on success**, not just the picker/customer mutations' own
+  `onMutate` guess. A docstring on `useMarkItemShort` used to claim this
+  already happened — it didn't; the response was silently discarded, and
+  `substituteOptions` (which the client can't guess, since the server picks
+  the candidates) only ever arrived if a WebSocket event happened to show up
+  later. `onSuccess` now merges the real response in immediately via the
+  same version-gated `mergeOrder` the WebSocket path uses, so the UI is
+  correct the instant the request resolves, with the live event arriving
+  after as a no-op confirmation rather than the only source of truth.
+- **Rollback-on-error is version-aware, not an unconditional restore.** An
+  optimistic update's `onMutate` never bumps `version` — only a real server
+  response does — so if a mutation fails *after* some other authoritative
+  update already landed (a WebSocket event, another mutation's response),
+  the cached order's version will have moved past the pre-mutation
+  snapshot's. Naively restoring that snapshot on error would silently erase
+  the newer state. `rollbackOrder` (`lib/cache.ts`) checks the version
+  first and only restores when nothing newer is known to have arrived.
+- **`SubstitutionModal` generates its `Idempotency-Key` once per offer**
+  (`useMemo` keyed on `item.id`/`item.expiresAt`), not fresh on every click.
+  A key generated per click defeats its own purpose: a double click or a
+  retry after a transient failure would get two different keys, so the
+  server would see two distinct requests instead of recognizing a retry —
+  exactly the duplicate-processing idempotency keys exist to prevent. One
+  key per offer means every click attempting to resolve the *same* offer is
+  treated as the same logical action.
+- **`SubstitutionModal` has real dialog semantics**: `role="dialog"`,
+  `aria-modal`, `aria-labelledby` pointing at its heading, focus moved into
+  it the instant it mounts, and `aria-live="polite"` on the countdown text.
+  Without these, a screen reader user gets no indication a 60-second,
+  money-affecting decision just appeared on screen at all — this is exactly
+  the kind of modal (unprompted, time-limited, financially consequential)
+  where that gap matters most.
 
 ## Known limitations / out of scope
 
@@ -328,7 +388,7 @@ token) before allowing the subscription.
 
 ## Running locally
 
-### Database (Phase 1)
+### Database
 
 ```bash
 docker compose up -d        # starts Postgres 16 on localhost:55432
@@ -350,7 +410,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.30.1 -dir migrations postgres "$
 go run ./cmd/seed
 ```
 
-### Backend API (Phase 2)
+### Backend API
 
 ```bash
 cd backend
@@ -373,7 +433,7 @@ curl http://localhost:8080/api/products
 ```
 
 Creating an order needs an `Idempotency-Key` header (any unique string —
-the frontend will generate one with `crypto.randomUUID()` starting Phase 6):
+the frontend generates one with `crypto.randomUUID()`):
 
 ```bash
 curl -X POST http://localhost:8080/api/orders \
@@ -460,7 +520,7 @@ npm run test    # Vitest — lib/cache.ts's merge/version logic, lib/cart.ts's t
 npm run build   # tsc -b && vite build
 ```
 
-### Mock mode — no backend needed (Phase 9)
+### Mock mode — no backend needed
 
 The whole app also runs with zero Go server and zero Postgres, for
 demoing the project from a static-hosted frontend alone:
@@ -504,16 +564,16 @@ npm run build                       # normal build — no mock code in the bundl
 
 > First load can take up to a minute — Render's free tier spins the backend
 > down when idle, and the app shows a "Waking up the server…" state while it
-> comes back (rule 14).
+> comes back.
 
 > **Why Netlify, not Vercel**: the original plan was Vercel throughout, but
-> the Vercel account hit a 2FA account-recovery flow mid-Phase-4 that only
+> the Vercel account hit a 2FA account-recovery flow early on that only
 > Vercel support can resolve, with no ETA. Netlify is a like-for-like
 > replacement (same free tier, same build-command/env-var model). The
-> `hello/` deploy-check page from Phase 4 and the real frontend above are the
+> original `hello/` deploy-check page and the real frontend above were the
 > same Netlify project — it was renamed (`darkstore-os-hello` →
-> `darkstore-os`) and redeployed with the real app once Phase 5+ built it,
-> rather than standing up a second site.
+> `darkstore-os`) and redeployed with the real app once it was built, rather
+> than standing up a second site.
 
 ## Project docs
 
