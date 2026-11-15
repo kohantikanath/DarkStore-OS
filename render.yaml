@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: darkstore-os-backend
+    runtime: go
+    rootDir: backend
+    plan: free
+    buildCommand: go build -o bin/server ./cmd/server
+    # Applies pending migrations before the new instance starts, so a schema
+    # change always lands before the code that depends on it. Pinned to a
+    # fixed version for reproducible builds.
+    preDeployCommand: go run github.com/pressly/goose/v3/cmd/goose@v3.30.1 -dir migrations postgres "$DATABASE_URL" up
+    startCommand: ./bin/server
+    envVars:
+      # Set to the Neon connection string in the Render dashboard — never
+      # committed here.
+      - key: DATABASE_URL
+        sync: false
+      # Set to the deployed frontend's exact origin once Phase 4's Vercel
+      # deploy exists; revisited again when the real frontend ships in
+      # Phase 5+.
+      - key: ALLOWED_ORIGIN
+        sync: false
+    # PORT is injected automatically by Render; the app already reads it
+    # from the environment (see backend/cmd/server/main.go), so it's not
+    # listed here.

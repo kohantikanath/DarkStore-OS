@@ -28,3 +28,6 @@ npm-debug.log*
 
 # Docker
 pgdata/
+
+# hello/ deploy-check build output
+hello/dist/
