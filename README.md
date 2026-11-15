@@ -7,13 +7,9 @@ popup — with a real countdown — to pick a replacement before it's auto-refun
 🔗 **[Try it live](https://darkstore-os.netlify.app)** — backend is on Render's free
 tier, so the first load can take up to a minute to wake up.
 
-![Demo GIF — Live Substitution end to end](docs/demo.gif)
-<!-- TODO: record ~15s of the live-substitution flow (mark short → countdown popup →
-     choice → live update on the picker screen) across two tabs and drop it in as
-     docs/demo.gif -->
-
-🎥 **[Watch the full walkthrough](#)** <!-- TODO: add the recorded video link here —
-     see docs/demo-script.md for the shot list -->
+| Shop — substitution bottom sheet | Picker — marking an item short | Ops — a live "awaiting substitution" row |
+|:---:|:---:|:---:|
+| ![Customer order tracker with the live substitution bottom sheet open, showing a 28-second countdown and two replacement options](docs/screenshots/shop-substitution.jpg) | ![Picker order detail with one item awaiting the customer, highlighted with a yellow left edge and a live countdown, and two more items with a red-outlined Short button](docs/screenshots/picker.jpg) | ![Store Manager ops table with a live count on the Awaiting substitution filter chip and a yellow-edged row for the order currently awaiting a decision](docs/screenshots/ops.jpg) |
 
 **What's technically interesting here:**
 
