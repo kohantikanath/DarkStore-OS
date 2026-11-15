@@ -31,3 +31,6 @@ pgdata/
 
 # hello/ deploy-check build output
 hello/dist/
+
+# Local Netlify folder
+.netlify

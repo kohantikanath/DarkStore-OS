@@ -1,7 +1,8 @@
 # DarkStore OS
 
-> Status: Phase 3 — order state machine + live WebSocket updates. No
-> substitution flow yet (Phase 8), no frontend yet (Phase 5+).
+> Status: Phase 4 — deployed to production (Render + Neon + a deploy-check
+> page) and verified end-to-end. No substitution flow yet (Phase 8), no real
+> frontend yet (Phase 5+).
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -89,6 +90,12 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   "tell everyone it changed" atomic from the caller's point of view: every
   successful API response implies a broadcast already went out (or is about
   to), and a handler can't forget to wire one up for a new transition.
+- **Migrations run embedded in the server binary at startup, not via
+  Render's `preDeployCommand`.** That hook is a paid-plan feature; embedding
+  the SQL files (`migrations/embed.go`) and applying them with goose's
+  library API (`internal/migrate`) before the server starts listening works
+  on every plan and makes local `go run ./cmd/server` behave identically to
+  the deployed one.
 
 ## Known limitations / out of scope
 
@@ -174,8 +181,21 @@ ahead — Phase 8 and Phase 5+ respectively.
 
 ## Live links
 
-- Frontend: _TBD (Phase 4+)_
-- Backend: _TBD (Phase 4+)_
+- Backend: https://darkstore-os-backend.onrender.com ([render.yaml](render.yaml))
+- Database: Neon (Postgres), Singapore region
+- Deploy-check page: https://darkstore-os-hello.netlify.app — the throwaway
+  `hello/` page from Phase 4 (see below), not the real frontend
+- Real frontend: _TBD (Phase 5+, on Vercel per the original plan — see note
+  below)_
+
+> **Why Netlify instead of Vercel for the Phase 4 check**: the plan was
+> Vercel throughout, but the Vercel account hit a 2FA account-recovery flow
+> mid-Phase-4 that only Vercel support can resolve, with no ETA. Netlify is a
+> like-for-like substitute (same free tier, same build-command/env-var
+> model) used here only to prove the Render/Neon backend and its CORS/`wss://`
+> wiring work end-to-end in production without that being blocked. The real
+> frontend in Phase 5+ still goes to Vercel once account access is back,
+> matching the original stack choice.
 
 ## Project docs
 
