@@ -61,6 +61,8 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 	ordersService := orders.NewService(pool, ordersRepo, productsRepo, hub)
 	ordersHandler := orders.NewHandler(pool, ordersRepo, ordersService)
 
+	go runExpiryTicker(ordersService)
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
@@ -85,6 +87,8 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 		r.Post("/api/orders/{id}/start-picking", ordersHandler.StartPicking)
 		r.Post("/api/orders/{id}/pack", ordersHandler.Pack)
 		r.Post("/api/orders/{id}/dispatch", ordersHandler.Dispatch)
+		r.Post("/api/orders/{id}/items/{itemId}/short", ordersHandler.MarkShort)
+		r.Post("/api/orders/{id}/items/{itemId}/substitute", ordersHandler.ChooseSubstitute)
 		r.Post("/api/dev/simulate", ordersHandler.Simulate)
 	})
 
@@ -92,6 +96,20 @@ func buildRouter(pool *pgxpool.Pool, allowedOrigin string) http.Handler {
 	r.Get("/ws", hub.Handler)
 
 	return r
+}
+
+// runExpiryTicker refunds AWAITING_SUBSTITUTE items past their expires_at
+// every 2 seconds, for the whole lifetime of the process. Storing the
+// deadline in the database (rather than an in-memory timer per item) means
+// this still works correctly even after a server restart — the ticker just
+// finds whatever's overdue the next time it runs.
+func runExpiryTicker(service *orders.Service) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		service.ExpireDueSubstitutions(context.Background())
+	}
 }
 
 // healthHandler pings the database so Render/Neon cold starts and real

@@ -2,43 +2,54 @@ package orders
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kohantikanath/darkstore-os/backend/internal/db"
 	"github.com/kohantikanath/darkstore-os/backend/internal/idempotency"
+	"github.com/kohantikanath/darkstore-os/backend/internal/products"
 )
 
-// priceLookup is the one thing Service needs from the products package,
-// pulled out as an interface so this package doesn't import products
-// directly (orders depending on products would be fine either way here, but
-// keeping the dependency this narrow makes it obvious the service only ever
-// needs prices and, for the simulate endpoint, a random sample of ids —
-// never the rest of the catalog).
-type priceLookup interface {
+// catalog is the one thing Service needs from the products package, pulled
+// out as an interface so this package doesn't import products' repository
+// or handler logic directly — only its plain data types (Product,
+// SubstituteCandidate), which are just shared DTOs, not behavior.
+type catalog interface {
 	PriceLookup(ctx context.Context, ids []string) (map[string]int, error)
 	RandomProductIDs(ctx context.Context, n int) ([]string, error)
+	GetProduct(ctx context.Context, id string) (*products.Product, error)
+	SubstituteCandidates(ctx context.Context, category, excludeProductID string, minAvailable, targetPricePaise, limit int) ([]products.SubstituteCandidate, error)
 }
 
 // broadcaster is the one thing Service needs from the ws package, narrowed to
-// an interface for the same reason as priceLookup above.
+// an interface for the same reason as catalog above.
 type broadcaster interface {
 	Broadcast(orderID, eventType string, order any)
 }
 
+// substitutionWindow is how long a customer has to choose a replacement
+// before the expiry ticker auto-refunds the item, per the spec.
+const substitutionWindow = 60 * time.Second
+
+// maxSubstituteCandidates is how many replacement options are offered.
+const maxSubstituteCandidates = 2
+
 type Service struct {
-	pool   *pgxpool.Pool
-	repo   *Repository
-	prices priceLookup
-	hub    broadcaster
+	pool    *pgxpool.Pool
+	repo    *Repository
+	catalog catalog
+	hub     broadcaster
 }
 
-func NewService(pool *pgxpool.Pool, repo *Repository, prices priceLookup, hub broadcaster) *Service {
-	return &Service{pool: pool, repo: repo, prices: prices, hub: hub}
+func NewService(pool *pgxpool.Pool, repo *Repository, catalog catalog, hub broadcaster) *Service {
+	return &Service{pool: pool, repo: repo, catalog: catalog, hub: hub}
 }
 
 // CreateOrder validates the requested items against the catalog, reserves
@@ -48,7 +59,7 @@ func NewService(pool *pgxpool.Pool, repo *Repository, prices priceLookup, hub br
 func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items []CreateOrderItem) (*Order, error) {
 	ids := uniqueProductIDs(items)
 
-	prices, err := s.prices.PriceLookup(ctx, ids)
+	prices, err := s.catalog.PriceLookup(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("orders: create: %w", err)
 	}
@@ -130,7 +141,7 @@ func (s *Service) CreateOrder(ctx context.Context, idempotencyKey string, items 
 func (s *Service) SimulateOrder(ctx context.Context) (*Order, error) {
 	n := 1 + rand.Intn(3) // 1-3 line items
 
-	ids, err := s.prices.RandomProductIDs(ctx, n)
+	ids, err := s.catalog.RandomProductIDs(ctx, n)
 	if err != nil {
 		return nil, fmt.Errorf("orders: simulate: %w", err)
 	}
@@ -189,13 +200,271 @@ func (s *Service) transition(
 		return nil, fmt.Errorf("orders: transition: commit: %w", err)
 	}
 
-	order, err := s.repo.GetOrder(ctx, id)
+	return s.reloadAndBroadcast(ctx, id)
+}
+
+// MarkItemShort handles a picker flagging an item as short. It writes off
+// the original product's reservation (that stock was never really there —
+// see Repository.WriteOffReservation), looks for up to two same-category
+// replacements within ±30% of the price with enough stock, and reserves
+// shortQty units of each one it finds. If it finds none, the item is
+// refunded immediately — the same outcome as if an offer had been made and
+// nobody answered in time.
+//
+// The spec's API accepts a shortQty distinct from the item's own qty, but
+// since order_items has one status per row (no sub-row quantity split),
+// this implementation treats the whole item as short rather than modeling
+// partial shortages — see the README for why that's a deliberate
+// simplification, not an oversight.
+func (s *Service) MarkItemShort(ctx context.Context, orderID, itemID string, shortQty int) (*Order, error) {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("orders: transition: reload: %w", err)
+		return nil, fmt.Errorf("orders: mark short: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	item, err := s.repo.GetItemForUpdate(ctx, tx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if item.OrderID != orderID {
+		return nil, ErrNotFound
+	}
+	if !CanMarkItemShort(OrderStatus(item.OrderStatus), ItemStatus(item.ItemStatus)) {
+		return nil, &TransitionError{
+			Entity: "item", From: item.ItemStatus, To: string(ItemAwaitingSubstitute),
+		}
+	}
+	if shortQty < 1 || shortQty > item.Qty {
+		return nil, &ValidationError{Message: fmt.Sprintf("shortQty must be between 1 and %d", item.Qty)}
+	}
+
+	product, err := s.catalog.GetProduct(ctx, item.ProductID)
+	if err != nil {
+		return nil, fmt.Errorf("orders: mark short: %w", err)
+	}
+
+	if err := s.repo.WriteOffReservation(ctx, tx, item.ProductID, shortQty); err != nil {
+		return nil, err
+	}
+
+	found, err := s.catalog.SubstituteCandidates(
+		ctx, product.Category, product.ID, shortQty, product.PricePaise, maxSubstituteCandidates,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("orders: mark short: %w", err)
+	}
+
+	var reserved []SubstituteCandidate
+	for _, c := range found {
+		ok, _, err := s.repo.ReserveStock(ctx, tx, c.ProductID, shortQty)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			reserved = append(reserved, SubstituteCandidate{
+				ProductID: c.ProductID, Name: c.Name, PricePaise: c.PricePaise,
+			})
+		}
+		// Not ok means stock changed out from under us between the SELECT and
+		// here; just offer fewer candidates rather than fail the whole request.
+	}
+
+	if len(reserved) == 0 {
+		if err := s.repo.MarkItemRefunded(ctx, tx, itemID); err != nil {
+			return nil, err
+		}
+	} else {
+		offer := SubstituteOffer{ShortQty: shortQty, Candidates: reserved}
+		optionsJSON, err := json.Marshal(offer)
+		if err != nil {
+			return nil, fmt.Errorf("orders: mark short: marshal offer: %w", err)
+		}
+		expiresAt := time.Now().Add(substitutionWindow)
+		if err := s.repo.MarkItemAwaitingSubstitute(ctx, tx, itemID, optionsJSON, expiresAt); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.repo.BumpOrderVersion(ctx, tx, orderID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("orders: mark short: commit: %w", err)
+	}
+
+	return s.reloadAndBroadcast(ctx, orderID)
+}
+
+// ChooseSubstitute applies the customer's pick: the chosen candidate's
+// reservation (already made when the offer went out) simply becomes real,
+// and any other candidate that was offered but not chosen is released back
+// to available stock.
+func (s *Service) ChooseSubstitute(
+	ctx context.Context, orderID, itemID, idempotencyKey, chosenProductID string,
+) (*Order, error) {
+	stored, err := idempotency.Lookup(ctx, s.pool, idempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: %w", err)
+	}
+	if stored != nil {
+		var order Order
+		if err := json.Unmarshal(stored.Body, &order); err != nil {
+			return nil, fmt.Errorf("orders: choose substitute: unmarshal replay: %w", err)
+		}
+		return &order, nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	item, err := s.repo.GetItemForUpdate(ctx, tx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if item.OrderID != orderID {
+		return nil, ErrNotFound
+	}
+	if !CanTransitionItem(ItemStatus(item.ItemStatus), ItemSubstituted) {
+		return nil, &TransitionError{
+			Entity: "item", From: item.ItemStatus, To: string(ItemSubstituted),
+		}
+	}
+	if item.ExpiresAt == nil || time.Now().After(*item.ExpiresAt) {
+		return nil, &ExpiredError{}
+	}
+
+	var offer SubstituteOffer
+	if err := json.Unmarshal(item.SubstituteOptions, &offer); err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: unmarshal offer: %w", err)
+	}
+
+	var chosen *SubstituteCandidate
+	for i, c := range offer.Candidates {
+		if c.ProductID == chosenProductID {
+			chosen = &offer.Candidates[i]
+			continue
+		}
+		// Every offered candidate was already reserved; the ones not chosen
+		// are released now rather than left reserved forever.
+		if err := s.repo.ReleaseStock(ctx, tx, c.ProductID, offer.ShortQty); err != nil {
+			return nil, err
+		}
+	}
+	if chosen == nil {
+		return nil, &InvalidSubstituteChoiceError{ProductID: chosenProductID}
+	}
+
+	if err := s.repo.MarkItemSubstituted(ctx, tx, itemID, chosen.ProductID); err != nil {
+		return nil, err
+	}
+	if err := s.repo.BumpOrderVersion(ctx, tx, orderID); err != nil {
+		return nil, err
+	}
+
+	// GetOrderTx, not GetOrder: this read has to happen inside tx, before
+	// commit, so it sees the writes this same transaction just made (the
+	// pool-backed GetOrder can't — another connection never sees an
+	// in-flight transaction's uncommitted changes).
+	order, err := s.repo.GetOrderTx(ctx, tx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: reload: %w", err)
+	}
+	if err := idempotency.Save(ctx, tx, idempotencyKey, http.StatusOK, order); err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("orders: choose substitute: commit: %w", err)
 	}
 
 	s.hub.Broadcast(order.ID, "order.updated", order)
 
+	return order, nil
+}
+
+// ExpireDueSubstitutions is called by the background ticker (see
+// cmd/server/main.go) every 2 seconds. Each due item is refunded in its own
+// transaction so one bad row can't block the rest, and a row already
+// resolved by the time its transaction starts (the customer chose at the
+// last second) is simply skipped rather than treated as an error.
+func (s *Service) ExpireDueSubstitutions(ctx context.Context) {
+	ids, err := s.repo.FindExpiredAwaitingSubstitution(ctx)
+	if err != nil {
+		log.Printf("orders: expire: find due items: %v", err)
+		return
+	}
+
+	for _, itemID := range ids {
+		if err := s.refundExpiredItem(ctx, itemID); err != nil {
+			log.Printf("orders: expire: item %s: %v", itemID, err)
+		}
+	}
+}
+
+func (s *Service) refundExpiredItem(ctx context.Context, itemID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+
+	item, err := s.repo.GetItemForUpdate(ctx, tx, itemID)
+	if err != nil {
+		return err
+	}
+	// Re-check under the lock: the customer may have chosen in the gap
+	// between FindExpiredAwaitingSubstitution's read and this transaction.
+	if ItemStatus(item.ItemStatus) != ItemAwaitingSubstitute {
+		return nil
+	}
+	if item.ExpiresAt == nil || !time.Now().After(*item.ExpiresAt) {
+		return nil
+	}
+
+	var offer SubstituteOffer
+	if err := json.Unmarshal(item.SubstituteOptions, &offer); err != nil {
+		return fmt.Errorf("unmarshal offer: %w", err)
+	}
+	for _, c := range offer.Candidates {
+		if err := s.repo.ReleaseStock(ctx, tx, c.ProductID, offer.ShortQty); err != nil {
+			return err
+		}
+	}
+
+	if err := s.repo.MarkItemRefunded(ctx, tx, itemID); err != nil {
+		return err
+	}
+	if err := s.repo.BumpOrderVersion(ctx, tx, item.OrderID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	order, err := s.repo.GetOrder(ctx, item.OrderID)
+	if err != nil {
+		return fmt.Errorf("reload: %w", err)
+	}
+	s.hub.Broadcast(order.ID, "order.updated", order)
+
+	return nil
+}
+
+// reloadAndBroadcast re-reads an order (to pick up everything a just-committed
+// transaction changed) and broadcasts it, so every mutation ends with the
+// same "reload the authoritative state, then tell everyone" shape.
+func (s *Service) reloadAndBroadcast(ctx context.Context, orderID string) (*Order, error) {
+	order, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("orders: reload: %w", err)
+	}
+	s.hub.Broadcast(order.ID, "order.updated", order)
 	return order, nil
 }
 

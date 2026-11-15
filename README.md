@@ -1,8 +1,11 @@
 # DarkStore OS
 
-> Status: Phase 7 — `/ops` is real: a virtualized live order table (10,000+
-> rows), filters, and a "Simulate" button. `/picker` is still a placeholder
-> (Phase 8), no substitution flow yet (Phase 8).
+> Status: Phase 8 — **the full story.** `/picker` is real (start picking,
+> mark an item short, pack, dispatch), and Live Substitution works
+> end-to-end: short → a live popup with a real countdown on the customer's
+> tracker → their choice (or an automatic refund on timeout) → reflected
+> instantly across all three views. This is the complete feature set the
+> project set out to build.
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -159,6 +162,43 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
 - **TanStack Virtual only renders rows near the viewport, not all 10,000.**
   Verified directly — scrolling 42% into the list still only produced ~22
   DOM nodes for the table body, same as scrolled to the top.
+- **`shortQty` is accepted by the API (matching the spec), but the picker UI
+  always sends the item's full qty.** `order_items` has one status per row,
+  with no sub-row quantity split, so there's no way to represent "2 of 3
+  units are short" without either adding a quantity-tracking column or
+  splitting a line into multiple rows — both real options, but more schema
+  than this project's scope calls for. Documented here as a deliberate
+  simplification, not a gap I didn't notice.
+- **A short item's original stock reservation is written off, not
+  released** (`WriteOffReservation`: `reserved -= qty`, `available`
+  untouched) — released stock (`available += qty`) would mean "this is
+  sellable again," which isn't true for something that was just discovered
+  missing from the shelf. A substitute candidate that's offered but not
+  chosen *is* released (`ReleaseStock`), since that stock was never actually
+  unavailable — it just wasn't picked.
+- **Neither a chosen nor an expired substitution recomputes the order's
+  `total_paise`.** The schema only stores a price per *order*, not per
+  *order item* (prices are looked up from the catalog at order-creation
+  time and summed once) — there's no per-line price to swap in for a
+  substitute's different cost. Getting this right would mean storing
+  `price_paise` on `order_items` too. Left as a known gap rather than
+  silently rounding or guessing.
+- **`GetOrderTx` exists alongside `GetOrder`, reading via a `pgx.Tx` instead
+  of the pool.** Found via a real bug: `ChooseSubstitute` originally read
+  the order back through the pool *before* committing its own transaction —
+  which (correctly) can't see an in-flight transaction's uncommitted
+  writes, so the response, the broadcast, and the saved idempotency record
+  all echoed stale pre-substitution data even though the database write
+  itself was correct. The actual data was always right; only what got
+  returned and broadcast was wrong — caught by checking the database
+  directly against what the API claimed.
+- **The picker queue has a real scale mismatch with the seed data.** The
+  10,000 seeded historical orders include thousands sitting in PLACED/
+  PICKING forever (useful for the ops table's virtualization demo), and
+  since the picker queue filters to exactly those two statuses, it shows
+  all of them — not just genuinely live ones. A production version would
+  need to scope "actionable" to something like "created recently" or a
+  separate queue table; noted here rather than silently worked around.
 
 ## Known limitations / out of scope
 
@@ -241,7 +281,7 @@ below with Python's `websocket-client`):
 
 `short`/`substitute` (the Live Substitution flow) is still ahead — Phase 8.
 
-### Frontend (Phase 5 foundation, Phase 6 /shop, Phase 7 /ops)
+### Frontend (Phase 5 foundation, Phase 6 /shop, Phase 7 /ops, Phase 8 /picker + substitution)
 
 ```bash
 cd frontend
@@ -271,7 +311,25 @@ Filter by status, search by order id, and hit **Simulate** to have the
 backend create a new random order every 3 seconds — watch it land at the
 top of the table live, with no refresh.
 
-`/picker` is still a placeholder (Phase 8).
+Pick **Picker** for `/picker` — a queue of orders to work (open two browser
+profiles, or two tabs with different roles, to see the full story at once):
+
+1. Open an order, **Start picking**.
+2. **Mark short** on an item — watch the *customer's* tracker (a different
+   tab/role, same order) show the substitution popup **live**, with a real
+   countdown.
+3. Pick a replacement there — the picker's screen updates instantly too, no
+   refresh either direction.
+4. Back on the picker, **Pack** then **Dispatch** to finish the order.
+
+To see the timeout path instead of choosing: mark an item short, then force
+its deadline into the past and watch the 2-second ticker refund it live,
+closing the popup on its own:
+
+```bash
+docker exec darkstore-os-postgres psql -U darkstore -d darkstore -c \
+  "UPDATE order_items SET expires_at = now() - interval '5 seconds' WHERE id = '<itemId>';"
+```
 
 ```bash
 npm run lint    # ESLint

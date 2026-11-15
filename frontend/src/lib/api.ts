@@ -125,3 +125,32 @@ export async function dispatchOrder(id: string): Promise<Order> {
 export async function simulateOrder(): Promise<Order> {
   return request(`/api/dev/simulate`, OrderSchema, { method: "POST" });
 }
+
+// Picker action: flags an item as short. See docs/project-spec.md and the
+// README for why this always sends the item's full qty rather than
+// supporting a partial shortQty in the UI.
+export async function markItemShort(
+  orderId: string,
+  itemId: string,
+  shortQty: number,
+): Promise<Order> {
+  return request(`/api/orders/${orderId}/items/${itemId}/short`, OrderSchema, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shortQty }),
+  });
+}
+
+// Customer action: picks one of the offered substitute candidates.
+export async function chooseSubstitute(
+  orderId: string,
+  itemId: string,
+  productId: string,
+  idempotencyKey: string,
+): Promise<Order> {
+  return request(`/api/orders/${orderId}/items/${itemId}/substitute`, OrderSchema, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ productId }),
+  });
+}

@@ -6,6 +6,7 @@ import { formatPaise } from "../../lib/cart";
 import { useOrder, useProducts } from "../../lib/queries";
 import { subscribe } from "../../lib/realtime";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
+import { SubstitutionModal } from "./SubstitutionModal";
 import type { OrderStatus, ItemStatus } from "../../types/order";
 
 const orderSteps: OrderStatus[] = ["PLACED", "PICKING", "PACKED", "DISPATCHED"];
@@ -24,10 +25,6 @@ export function OrderTrackerPage() {
   const products = useProducts();
   const productNameById = new Map((products.data ?? []).map((p) => [p.id, p.name]));
 
-  // The popup for AWAITING_SUBSTITUTE items and the full live-update story
-  // land in Phase 8; this just needs the order itself kept fresh (version
-  // check already handled by lib/realtime.ts's cache patching) — subscribing
-  // is the only thing this screen needs to do for that to work.
   useEffect(() => {
     if (orderId) subscribe(`order:${orderId}`);
   }, [orderId]);
@@ -69,6 +66,10 @@ export function OrderTrackerPage() {
   }
 
   const currentStepIndex = orderSteps.indexOf(order.data.status);
+  // Derived from order state, not triggered by the WebSocket event itself
+  // (rule 10) — this is why the popup is still here after a page refresh,
+  // and why it's gone the instant an item resolves one way or the other.
+  const awaitingItem = order.data.items.find((item) => item.status === "AWAITING_SUBSTITUTE");
 
   return (
     <div>
@@ -113,6 +114,8 @@ export function OrderTrackerPage() {
           </li>
         ))}
       </ul>
+
+      {awaitingItem && <SubstitutionModal orderId={order.data.id} item={awaitingItem} />}
     </div>
   );
 }

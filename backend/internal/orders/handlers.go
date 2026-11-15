@@ -100,6 +100,85 @@ func (h *Handler) Simulate(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, order)
 }
 
+// MarkShort handles POST /api/orders/{id}/items/{itemId}/short.
+func (h *Handler) MarkShort(w http.ResponseWriter, r *http.Request) {
+	orderID := chi.URLParam(r, "id")
+	itemID := chi.URLParam(r, "itemId")
+
+	var req ShortItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "body must be valid JSON", nil)
+		return
+	}
+	if req.ShortQty < 1 {
+		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "shortQty must be at least 1", nil)
+		return
+	}
+
+	order, err := h.service.MarkItemShort(r.Context(), orderID, itemID, req.ShortQty)
+	if err != nil {
+		var transitionErr *TransitionError
+		var validationErr *ValidationError
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "no matching order/item", nil)
+		case errors.As(err, &validationErr):
+			httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", validationErr.Error(), nil)
+		case errors.As(err, &transitionErr):
+			httpx.WriteError(w, http.StatusConflict, "INVALID_TRANSITION", transitionErr.Error(), nil)
+		default:
+			log.Printf("orders: mark short: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "something went wrong", nil)
+		}
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, order)
+}
+
+// ChooseSubstitute handles POST /api/orders/{id}/items/{itemId}/substitute.
+// The Idempotency-Key header is mandatory, same as order creation.
+func (h *Handler) ChooseSubstitute(w http.ResponseWriter, r *http.Request) {
+	orderID := chi.URLParam(r, "id")
+	itemID := chi.URLParam(r, "itemId")
+
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "IDEMPOTENCY_KEY_REQUIRED",
+			"the Idempotency-Key header is required", nil)
+		return
+	}
+
+	var req SubstituteChoiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ProductID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "productId is required", nil)
+		return
+	}
+
+	order, err := h.service.ChooseSubstitute(r.Context(), orderID, itemID, idempotencyKey, req.ProductID)
+	if err != nil {
+		var transitionErr *TransitionError
+		var invalidChoiceErr *InvalidSubstituteChoiceError
+		var expiredErr *ExpiredError
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "no matching order/item", nil)
+		case errors.As(err, &expiredErr):
+			httpx.WriteError(w, http.StatusConflict, "EXPIRED", expiredErr.Error(), nil)
+		case errors.As(err, &transitionErr):
+			httpx.WriteError(w, http.StatusConflict, "INVALID_TRANSITION", transitionErr.Error(), nil)
+		case errors.As(err, &invalidChoiceErr):
+			httpx.WriteError(w, http.StatusBadRequest, "INVALID_SUBSTITUTE_CHOICE", invalidChoiceErr.Error(), nil)
+		default:
+			log.Printf("orders: choose substitute: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "something went wrong", nil)
+		}
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, order)
+}
+
 // List handles GET /api/orders — lightweight summaries for the ops table.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	summaries, err := h.repo.ListSummaries(r.Context())

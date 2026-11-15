@@ -12,15 +12,32 @@ export const ItemStatusSchema = z.enum([
 ]);
 export type ItemStatus = z.infer<typeof ItemStatusSchema>;
 
+// One replacement option offered for a short item — mirrors the backend's
+// products.SubstituteCandidate.
+export const SubstituteCandidateSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  pricePaise: z.number().int().positive(),
+});
+
+export type SubstituteCandidate = z.infer<typeof SubstituteCandidateSchema>;
+
+// Stored in (and round-tripped through) order_items.substitute_options
+// while an item is AWAITING_SUBSTITUTE.
+export const SubstituteOfferSchema = z.object({
+  shortQty: z.number().int().positive(),
+  candidates: z.array(SubstituteCandidateSchema),
+});
+
+export type SubstituteOffer = z.infer<typeof SubstituteOfferSchema>;
+
 export const OrderItemSchema = z.object({
   id: z.string(),
   productId: z.string(),
   qty: z.number().int().positive(),
   status: ItemStatusSchema,
   substituteProductId: z.string().optional(),
-  // Shape depends on the substitution candidates offered (Phase 8); left
-  // loose here since nothing reads it yet.
-  substituteOptions: z.unknown().optional(),
+  substituteOptions: SubstituteOfferSchema.optional(),
   expiresAt: z.iso.datetime({ offset: true }).optional(),
 });
 

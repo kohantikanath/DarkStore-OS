@@ -1,13 +1,19 @@
-import { AppHeader } from "../../components/AppHeader";
+import { Route, Routes } from "react-router-dom";
 
-// Placeholder — picking + Live Substitution land in Phase 8.
+import { AppHeader } from "../../components/AppHeader";
+import { PickerOrderDetail } from "./PickerOrderDetail";
+import { PickerQueue } from "./PickerQueue";
+
+// Mounted at "/picker/*" (see App.tsx), so paths here are relative to /picker.
 export default function PickerApp() {
   return (
     <div>
       <AppHeader />
-      <main className="p-8 text-slate-600">
-        <h1 className="text-xl font-semibold text-slate-800">Picker</h1>
-        <p className="mt-2">Order picking and Live Substitution arrive in Phase 8.</p>
+      <main className="mx-auto max-w-3xl p-6">
+        <Routes>
+          <Route path="/" element={<PickerQueue />} />
+          <Route path="order/:orderId" element={<PickerOrderDetail />} />
+        </Routes>
       </main>
     </div>
   );

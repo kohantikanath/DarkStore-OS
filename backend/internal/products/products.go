@@ -8,14 +8,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kohantikanath/darkstore-os/backend/internal/httpx"
 )
+
+var ErrNotFound = errors.New("products: not found")
 
 type Product struct {
 	ID         string `json:"id"`
@@ -98,6 +103,68 @@ func (r *Repository) RandomProductIDs(ctx context.Context, n int) ([]string, err
 	}
 
 	return ids, rows.Err()
+}
+
+// GetProduct fetches a single product by id, for the substitution flow,
+// which needs the short item's own category and price to go looking for
+// candidates.
+func (r *Repository) GetProduct(ctx context.Context, id string) (*Product, error) {
+	var p Product
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, category, price_paise FROM products WHERE id = $1`, id,
+	).Scan(&p.ID, &p.Name, &p.Category, &p.PricePaise)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("products: get: %w", err)
+	}
+	return &p, nil
+}
+
+// SubstituteCandidate is one replacement option offered for a short item.
+type SubstituteCandidate struct {
+	ProductID  string `json:"productId"`
+	Name       string `json:"name"`
+	PricePaise int    `json:"pricePaise"`
+}
+
+// SubstituteCandidates finds up to limit same-category products, priced
+// within ±30% of targetPricePaise, with at least minAvailable units in
+// stock, sorted by closest price match — per the spec's substitution rules.
+func (r *Repository) SubstituteCandidates(
+	ctx context.Context, category, excludeProductID string, minAvailable, targetPricePaise, limit int,
+) ([]SubstituteCandidate, error) {
+	low := int(float64(targetPricePaise) * 0.7)
+	high := int(math.Ceil(float64(targetPricePaise) * 1.3))
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT p.id, p.name, p.price_paise
+		FROM products p
+		JOIN stock s ON s.product_id = p.id
+		WHERE p.category = $1
+		  AND p.id != $2
+		  AND s.available >= $3
+		  AND p.price_paise BETWEEN $4 AND $5
+		ORDER BY ABS(p.price_paise - $6)
+		LIMIT $7`,
+		category, excludeProductID, minAvailable, low, high, targetPricePaise, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("products: substitute candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []SubstituteCandidate
+	for rows.Next() {
+		var c SubstituteCandidate
+		if err := rows.Scan(&c.ProductID, &c.Name, &c.PricePaise); err != nil {
+			return nil, fmt.Errorf("products: scan candidate: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+
+	return candidates, rows.Err()
 }
 
 type Handler struct {

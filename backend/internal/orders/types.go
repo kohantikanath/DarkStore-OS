@@ -3,6 +3,7 @@ package orders
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -92,4 +93,54 @@ type InsufficientStockError struct {
 
 func (e *InsufficientStockError) Error() string {
 	return "insufficient stock for one or more items"
+}
+
+// SubstituteCandidate mirrors products.SubstituteCandidate — redeclared here
+// so this package's JSON shape doesn't depend on products' internal type
+// identity, only its (matching) field layout.
+type SubstituteCandidate struct {
+	ProductID  string `json:"productId"`
+	Name       string `json:"name"`
+	PricePaise int    `json:"pricePaise"`
+}
+
+// SubstituteOffer is what's stored in order_items.substitute_options and
+// returned to the client while an item is AWAITING_SUBSTITUTE.
+type SubstituteOffer struct {
+	ShortQty   int                   `json:"shortQty"`
+	Candidates []SubstituteCandidate `json:"candidates"`
+}
+
+type ShortItemRequest struct {
+	ShortQty int `json:"shortQty"`
+}
+
+type SubstituteChoiceRequest struct {
+	ProductID string `json:"productId"`
+}
+
+// ValidationError is for request data that's well-formed JSON but fails a
+// business rule the service alone can check (e.g. shortQty needs the item's
+// real qty from the database to validate against).
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
+// ExpiredError means a substitution choice arrived after its 60-second
+// window had already passed (or, on a very close race, after the expiry
+// ticker had already refunded it).
+type ExpiredError struct{}
+
+func (e *ExpiredError) Error() string { return "the substitution window has expired" }
+
+// InvalidSubstituteChoiceError means the chosen productId wasn't one of the
+// candidates actually offered for this item.
+type InvalidSubstituteChoiceError struct {
+	ProductID string
+}
+
+func (e *InvalidSubstituteChoiceError) Error() string {
+	return fmt.Sprintf("product %s was not offered as a substitute for this item", e.ProductID)
 }
