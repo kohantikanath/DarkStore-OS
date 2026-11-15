@@ -11,7 +11,7 @@ tier, so the first load can take up to a minute to wake up.
 
 | Shop — the substitution dialog (styled as a bottom sheet) | Picker — Pack blocked on a pending decision | Ops — a live "awaiting substitution" row |
 |:---:|:---:|:---:|
-| ![Customer order tracker with the substitution dialog open, naming the out-of-stock item, with a live countdown and two replacement options each showing their price difference from the original](docs/screenshots/shop-substitution.jpg) | ![Picker order detail with one item awaiting the customer, highlighted with a yellow left edge and a live countdown; the Pack button is disabled with a "Waiting for the customer on 1 item" hint](docs/screenshots/picker.jpg) | ![Store Manager ops table with a live count on the Awaiting substitution filter chip and a yellow-edged row for the order currently awaiting a decision](docs/screenshots/ops.jpg) |
+| ![Customer order tracker with the substitution dialog open, naming the out-of-stock item, with a live countdown and its one same-subcategory replacement option showing its price difference from the original](docs/screenshots/shop-substitution.jpg) | ![Picker order detail with one item awaiting the customer, highlighted with a yellow left edge and a live countdown; the Pack button is disabled with a "Waiting for the customer on 1 item" hint](docs/screenshots/picker.jpg) | ![Store Manager ops table with a live count on the Awaiting substitution filter chip and a yellow-edged row for the order currently awaiting a decision](docs/screenshots/ops.jpg) |
 
 **What's technically interesting here:**
 
