@@ -1,9 +1,8 @@
 # DarkStore OS
 
-> Status: Phase 5 — frontend foundation (routing, role switcher, adapters,
-> Zod schemas) is wired up and talking to the real backend. No real
-> shop/ops/picker screens yet (Phases 6–8), no substitution flow yet
-> (Phase 8).
+> Status: Phase 6 — `/shop` is real: catalog, cart, checkout, and a live
+> order tracker. `/ops` and `/picker` are still placeholders (Phases 7–8),
+> no substitution flow yet (Phase 8).
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -125,6 +124,27 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   middleware** rather than, say, a URL param or session cookie — a picker
   mid-shift who refreshes the page shouldn't be bounced back to the role
   picker.
+- **`lib/cart.ts` is pure, like `lib/cache.ts`** — `computeCartSummary`
+  takes the products list and the cart's `productId -> qty` map and returns
+  line items + totals, with no Zustand or React involved. Same reasoning
+  as the WebSocket merge logic: the only part worth bugs hiding in is unit
+  tested directly.
+- **One fresh `Idempotency-Key` per checkout click**, generated right in the
+  click handler rather than once per page load. TanStack Query mutations
+  don't auto-retry by default, so one click is reliably one attempt — no
+  need to track and reuse a key across retries that never happen.
+- **`useConnectionStatus` reads the current status via a lazy `useState`
+  initializer, not a hardcoded `"connecting"`.** Found this one by actually
+  using the app: a component that mounts *after* the socket already
+  connected (e.g. navigating to the order tracker once the app's been
+  running a while) would otherwise show a permanently stuck "Connecting…"
+  badge, since `onConnectionChange` only pushes future changes to new
+  listeners — there was no way to ask "what's the status right now?" A
+  `getConnectionStatus()` getter fixes that.
+- **On WebSocket reconnect, `['orders']` and any open `['order', id]` are
+  invalidated once** (not refetched blindly on every render) — since orders
+  are never polled (`staleTime: Infinity`), a fresh fetch after reconnecting
+  is the only way to be sure nothing was missed while disconnected.
 
 ## Known limitations / out of scope
 
@@ -207,7 +227,7 @@ below with Python's `websocket-client`):
 
 `short`/`substitute` (the Live Substitution flow) is still ahead — Phase 8.
 
-### Frontend (Phase 5)
+### Frontend (Phase 5 foundation, Phase 6 /shop)
 
 ```bash
 cd frontend
@@ -216,16 +236,25 @@ npm install
 npm run dev             # http://localhost:5173
 ```
 
-Pick a role (customer/picker/manager) — it's a fake login, persisted to
-`localStorage`, with route guards that bounce you back to the role picker
-if you try a URL for a role you're not in. Each role's screen is a
-placeholder until its phase (6, 7, 8) builds the real thing; this phase is
-about proving the routing, the adapters (`lib/api.ts`, `lib/realtime.ts`),
-and the Zod-validated types all actually talk to the backend above.
+Pick **Customer** — fake login, persisted to `localStorage`, with route
+guards that bounce you back to the role picker if you try a URL for a role
+you're not in. `/shop` is real: browse the seeded catalog, add items (qty
+steppers, grouped by category), place an order (one `Idempotency-Key` per
+click), and land on a live order tracker. Drive the order through its
+lifecycle from another terminal to watch the tracker update with no
+refresh:
+
+```bash
+curl -X POST http://localhost:8080/api/orders/<id>/start-picking
+curl -X POST http://localhost:8080/api/orders/<id>/pack
+curl -X POST http://localhost:8080/api/orders/<id>/dispatch
+```
+
+`/ops` and `/picker` are still placeholders (Phases 7, 8).
 
 ```bash
 npm run lint    # ESLint
-npm run test    # Vitest — currently covers lib/cache.ts's merge/version logic
+npm run test    # Vitest — lib/cache.ts's merge/version logic, lib/cart.ts's totals
 npm run build   # tsc -b && vite build
 ```
 

@@ -1,15 +1,19 @@
-import { AppHeader } from "../../components/AppHeader";
+import { Route, Routes } from "react-router-dom";
 
-// Placeholder — the real catalog/cart/checkout/tracker screen lands in
-// Phase 6. This exists now purely to prove the route/role/lazy-load
-// plumbing works end to end.
+import { AppHeader } from "../../components/AppHeader";
+import { CatalogPage } from "./CatalogPage";
+import { OrderTrackerPage } from "./OrderTrackerPage";
+
+// Mounted at "/shop/*" (see App.tsx), so paths here are relative to /shop.
 export default function ShopApp() {
   return (
     <div>
       <AppHeader />
-      <main className="p-8 text-slate-600">
-        <h1 className="text-xl font-semibold text-slate-800">Shop</h1>
-        <p className="mt-2">Catalog, cart, and checkout arrive in Phase 6.</p>
+      <main className="mx-auto max-w-4xl p-6">
+        <Routes>
+          <Route path="/" element={<CatalogPage />} />
+          <Route path="order/:orderId" element={<OrderTrackerPage />} />
+        </Routes>
       </main>
     </div>
   );

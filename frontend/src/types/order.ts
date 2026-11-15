@@ -64,3 +64,14 @@ export interface CreateOrderItem {
 export interface CreateOrderRequest {
   items: CreateOrderItem[];
 }
+
+// The shape of a 409 INSUFFICIENT_STOCK error's `details` array.
+export const StockShortfallSchema = z.object({
+  productId: z.string(),
+  requested: z.number().int().positive(),
+  available: z.number().int().nonnegative(),
+});
+
+export type StockShortfall = z.infer<typeof StockShortfallSchema>;
+
+export const StockShortfallListSchema = z.array(StockShortfallSchema);

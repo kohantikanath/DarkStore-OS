@@ -2,6 +2,7 @@
 // a WebSocket. It owns one connection for the whole app, channels components
 // ask to subscribe to, and reconnect-with-backoff — components only ever
 // call subscribe()/onConnectionChange() and never touch WebSocket directly.
+import { useEffect, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "./queryClient";
@@ -24,9 +25,17 @@ const connectionListeners = new Set<ConnectionListener>();
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let queryClientRef: QueryClient | undefined;
+let hasConnectedBefore = false;
+let currentStatus: ConnectionStatus = "connecting";
 
 function setStatus(status: ConnectionStatus) {
+  currentStatus = status;
   for (const listener of connectionListeners) listener(status);
+}
+
+/** The status right now — for a component mounting after the connection already settled. */
+export function getConnectionStatus(): ConnectionStatus {
+  return currentStatus;
 }
 
 function applyEvent(queryClient: QueryClient, raw: unknown) {
@@ -57,6 +66,19 @@ function connect() {
     for (const channel of channels) {
       socket?.send(JSON.stringify({ type: "subscribe", channel }));
     }
+
+    // Rule: on reconnect (not the first connect), invalidate ['orders'] and
+    // any open ['order', id] once. Any event missed while disconnected
+    // would otherwise leave stale data sitting in the cache indefinitely,
+    // since orders are never polled (staleTime: Infinity) — only a fresh
+    // fetch after reconnecting can be sure it's caught up.
+    if (hasConnectedBefore && queryClientRef) {
+      queryClientRef.invalidateQueries({ queryKey: queryKeys.orders });
+      queryClientRef.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === "order",
+      });
+    }
+    hasConnectedBefore = true;
   };
 
   socket.onmessage = (event: MessageEvent<string>) => {
@@ -106,4 +128,17 @@ export function subscribe(channel: string) {
 export function onConnectionChange(listener: ConnectionListener): () => void {
   connectionListeners.add(listener);
   return () => connectionListeners.delete(listener);
+}
+
+/** React hook wrapper around onConnectionChange, for showing a "Reconnecting…" badge. */
+export function useConnectionStatus(): ConnectionStatus {
+  // Lazy initializer, not a hardcoded "connecting": a component mounting
+  // after the socket already connected (e.g. navigating to the tracker
+  // once the app's already running) should start showing the real status,
+  // not wait for the next change event to correct it.
+  const [status, setStatus] = useState<ConnectionStatus>(getConnectionStatus);
+
+  useEffect(() => onConnectionChange(setStatus), []);
+
+  return status;
 }
