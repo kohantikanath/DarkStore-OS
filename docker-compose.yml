@@ -8,7 +8,9 @@ services:
       POSTGRES_PASSWORD: darkstore
       POSTGRES_DB: darkstore
     ports:
-      - "5432:5432"
+      # Host port 5432 is commonly already taken by another local Postgres,
+      # so this maps to 55432 on the host; the container's own port stays 5432.
+      - "55432:5432"
     volumes:
       - darkstore-os-pgdata:/var/lib/postgresql/data
     healthcheck:
