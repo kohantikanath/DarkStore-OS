@@ -1,11 +1,11 @@
 # DarkStore OS
 
-> Status: Phase 8 — **the full story.** `/picker` is real (start picking,
-> mark an item short, pack, dispatch), and Live Substitution works
-> end-to-end: short → a live popup with a real countdown on the customer's
-> tracker → their choice (or an automatic refund on timeout) → reflected
-> instantly across all three views. This is the complete feature set the
-> project set out to build.
+> Status: Phase 9 — **mock mode.** The whole app now also runs with zero
+> backend: `VITE_USE_MOCK=true` swaps MSW + BroadcastChannel in for the real
+> fetch/WebSocket transport, with no component changes anywhere — the same
+> Live Substitution flow (short → live countdown popup → choice or
+> auto-refund → reflected across views) works identically, demoable from a
+> static-hosted frontend alone.
 
 A mini fulfillment platform modeling a Zepto-style dark store (a small warehouse that only
 packs online orders), with three real-time connected views — customer, picker, and store
@@ -199,6 +199,49 @@ _Diagram and walkthrough added once the backend and frontend are built (Phases 2
   all of them — not just genuinely live ones. A production version would
   need to scope "actionable" to something like "created recently" or a
   separate queue table; noted here rather than silently worked around.
+- **Mock mode is a build-time-only toggle, not a runtime one.** `VITE_USE_MOCK`
+  is read via `import.meta.env`, so Vite inlines it as a literal at build
+  time; when it's `false`/unset, Rollup's dead-code elimination drops the
+  entire mock branch, including the dynamic `import("./mocks/browser")` and
+  MSW itself. Verified directly: a normal `npm run build` produces one
+  388.28kB main bundle with no extra chunk; building with
+  `VITE_USE_MOCK=true` instead produces a separate ~408KB chunk for the mock
+  code. A real deployment never ships MSW by accident.
+- **`mocks/db.ts` is a from-scratch, simplified reimplementation of the
+  backend's rules, not a shared library with it.** Same state machine,
+  same ±30%/same-category substitute selection, same atomic-enough stock
+  bookkeeping — but in plain in-memory `Map`s with no transactions, because
+  there's no concurrency to guard against inside one JS thread. Keeping
+  frontend and backend logic genuinely independent (vs., say, compiling the
+  Go rules to WASM) was the simpler choice for a demo-only mock backend.
+- **Each browser tab's mock "backend" is its own isolated instance** — the
+  `orders` Map in `mocks/db.ts` is module-level state, and every tab/document
+  loads a fresh copy. BroadcastChannel is one shared event bus across tabs,
+  but it carries *events*, not a shared database: a tab can only mutate
+  (pick, mark short, substitute) an order it created or was seeded with
+  itself. Found this directly while testing the live-substitution demo
+  across two tabs — a second tab opened straight to a picker's order detail
+  page 404's, because that tab's own mock "backend" never heard of that
+  order. The real fix for *testing* this is to perform the mutating action
+  (e.g. "mark short") in the tab that owns the order, then watch a second,
+  merely-observing tab receive the live update — which is also exactly how
+  a real multi-device demo would look once a real backend is involved.
+- **`broadcastMockEvent` applies its own event locally, not just to other
+  tabs.** `BroadcastChannel.postMessage` never delivers a message back to
+  its own sender (unlike a real WebSocket, where the server has no reason to
+  exclude the connection that triggered the change from its own broadcast).
+  The mutation hooks (`useMarkItemShort`, etc.) only optimistically guess at
+  the next state in `onMutate` — they can't know `substituteOptions` ahead of
+  time, since the server/mock backend picks the candidates — so without this,
+  the *acting* tab's own order-detail view and ops list would simply never
+  learn the real outcome unless some other tab happened to be open to
+  broadcast it back. Found this by testing solo in one tab (switching
+  customer → picker → customer to drive the whole flow alone, the way
+  someone demoing this project unassisted actually would): the substitution
+  popup silently never appeared, and the ops table kept showing a stale
+  status/version for the order that tab itself had just changed, even
+  though the real backend-equivalent data was correct all along. Patching
+  locally — the same `applyEvent` a receiving tab runs — fixes both.
 
 ## Known limitations / out of scope
 
@@ -335,6 +378,41 @@ docker exec darkstore-os-postgres psql -U darkstore -d darkstore -c \
 npm run lint    # ESLint
 npm run test    # Vitest — lib/cache.ts's merge/version logic, lib/cart.ts's totals
 npm run build   # tsc -b && vite build
+```
+
+### Mock mode — no backend needed (Phase 9)
+
+The whole app also runs with zero Go server and zero Postgres, for
+demoing the project from a static-hosted frontend alone:
+
+```bash
+cd frontend
+cp .env.example .env.development.local
+# then set VITE_USE_MOCK=true in .env.development.local (gitignored —
+# local-only, so this never affects a real build or deploy)
+npm run dev
+```
+
+MSW intercepts every `/api/*` call at the network layer and answers from an
+in-memory mock "backend" (`src/mocks/db.ts`, `src/mocks/handlers.ts`) seeded
+with the same 40-product catalog and 10,000 historical orders; a
+`BroadcastChannel` stands in for the WebSocket, so the live substitution
+popup, the ops table, and cross-role updates all still work — open two
+tabs with different roles (**Picker** in one, **Customer** in the other) to
+watch it live, same as the real-backend walkthrough above. One thing to
+know: each tab's mock backend is its own isolated copy (see "Key decisions"
+above) — a mutation like "mark short" or "choose a substitute" has to
+happen in the tab that actually owns that order; a second tab can only
+*watch* it update live, not act on it, until the real backend replaces the
+mock one.
+
+To build the production bundle in mock mode instead of running the dev
+server (e.g. to sanity-check it ships correctly isolated from a normal
+build):
+
+```bash
+VITE_USE_MOCK=true npm run build    # adds a separate ~408KB chunk for MSW + the mock backend
+npm run build                       # normal build — no mock code in the bundle at all
 ```
 
 ## Live links
